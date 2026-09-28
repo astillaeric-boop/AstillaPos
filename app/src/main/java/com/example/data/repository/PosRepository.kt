@@ -13,6 +13,7 @@ import com.example.data.local.entity.SaleEntity
 import com.example.data.local.entity.SaleItemEntity
 import com.example.data.local.entity.SaleWithItems
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.firstOrNull
 
 class PosRepository(private val database: AppDatabase) {
@@ -21,6 +22,7 @@ class PosRepository(private val database: AppDatabase) {
     private val deliveryDao = database.deliveryDao()
     private val appSettingsDao = database.appSettingsDao()
     private val customerDao = database.customerDao()
+    private val creditTransactionDao = database.creditTransactionDao()
 
     val allProducts: Flow<List<ProductEntity>> = productDao.getAllProducts()
     val allSales: Flow<List<SaleWithItems>> = saleDao.getAllSalesWithItems()
@@ -28,6 +30,7 @@ class PosRepository(private val database: AppDatabase) {
     val allDeliveriesWithItems: Flow<List<DeliveryWithItems>> = deliveryDao.getAllDeliveriesWithItems()
     val appSettings: Flow<AppSettingsEntity?> = appSettingsDao.getSettings()
     val allCustomers: Flow<List<CustomerEntity>> = customerDao.getAllCustomers()
+    val allCreditTransactions: Flow<List<CreditTransactionEntity>> = creditTransactionDao.getAllCreditTransactions()
     val totalOutstandingCredit: Flow<Double?> = customerDao.getTotalOutstandingCredit()
 
     fun searchProducts(query: String): Flow<List<ProductEntity>> = productDao.searchProducts(query)
@@ -191,6 +194,29 @@ class PosRepository(private val database: AppDatabase) {
             val newBalance = customer.currentBalance + totalAmount
             val now = System.currentTimeMillis()
 
+            // Record Sale (Accrual Basis: record sales & COGS on the date items leave inventory)
+            val sale = SaleEntity(
+                timestamp = now,
+                totalAmount = totalAmount,
+                taxAmount = 0.0,
+                paymentType = "Credit (Utang)",
+                isSynced = false
+            )
+            val saleId = saleDao.insertSale(sale)
+            val saleItems = borrowedItems.filter { it.second > 0 }.map { (product, qty) ->
+                SaleItemEntity(
+                    saleId = saleId,
+                    productId = product.id,
+                    productName = product.name,
+                    quantity = qty,
+                    unitCost = product.costPrice,
+                    unitPrice = product.retailPrice
+                )
+            }
+            if (saleItems.isNotEmpty()) {
+                saleDao.insertSaleItems(saleItems)
+            }
+
             val transaction = CreditTransactionEntity(
                 customerId = customerId,
                 timestamp = now,
@@ -204,6 +230,36 @@ class PosRepository(private val database: AppDatabase) {
             transaction.copy(id = txId)
         }
     }
+
+    /**
+     * Sum of all completed sales (Cash + Credit) in the timeframe (Accrual Basis).
+     */
+    fun getGrossSales(startDate: Long, endDate: Long): Flow<Double> =
+        saleDao.getGrossSales(startDate, endDate)
+
+    /**
+     * Actual Cash Flow: Cash Sales + Utang Payments Received in the timeframe.
+     */
+    fun getCashCollected(startDate: Long, endDate: Long): Flow<Double> {
+        return combine(
+            saleDao.getCashSales(startDate, endDate),
+            creditTransactionDao.getPaymentsCollected(startDate, endDate)
+        ) { cashSales, payments ->
+            cashSales + payments
+        }
+    }
+
+    /**
+     * Cost of Goods Sold (COGS) for the timeframe.
+     */
+    fun getTotalCOGS(startDate: Long, endDate: Long): Flow<Double> =
+        saleDao.getTotalCOGS(startDate, endDate)
+
+    /**
+     * Real-time sum of all active customer unpaid utang balances.
+     */
+    fun getOutstandingUtangBalance(): Flow<Double> =
+        customerDao.getOutstandingUtangBalance()
 
     suspend fun recordCreditTransaction(
         customerId: Long,
@@ -238,6 +294,7 @@ class PosRepository(private val database: AppDatabase) {
 
     suspend fun resetDatabase() {
         database.withTransaction {
+            creditTransactionDao.deleteAllCreditTransactions()
             customerDao.deleteAllCreditTransactions()
             customerDao.deleteAllCustomers()
             saleDao.deleteAllSaleItems()

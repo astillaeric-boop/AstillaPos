@@ -73,7 +73,7 @@ fun CreditReceiptDialog(
     }
 
     val isBorrow = transaction?.transactionType.equals("BORROW", ignoreCase = true)
-    val isPayment = transaction?.transactionType.equals("PAYMENT", ignoreCase = true)
+    val isPayment = transaction?.transactionType?.contains("PAYMENT", ignoreCase = true) == true
 
     Dialog(
         onDismissRequest = onDismiss,

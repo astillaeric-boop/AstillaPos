@@ -63,4 +63,10 @@ interface CustomerDao {
 
     @Query("SELECT SUM(currentBalance) FROM customers")
     fun getTotalOutstandingCredit(): Flow<Double?>
+
+    @Query("SELECT COALESCE(SUM(currentBalance), 0.0) FROM customers")
+    fun getOutstandingUtangBalance(): Flow<Double>
+
+    @Query("SELECT COALESCE(SUM(currentBalance), 0.0) FROM customers")
+    suspend fun getOutstandingUtangBalanceDirect(): Double
 }

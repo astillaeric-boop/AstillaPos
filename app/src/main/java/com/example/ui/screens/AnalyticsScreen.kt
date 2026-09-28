@@ -198,19 +198,23 @@ fun AnalyticsScreen(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             AccountingKpiCard(
-                title = "Total Revenue",
+                title = "Total Revenue / Gross Sales",
                 value = "$currency${String.format(Locale.US, "%.2f", state.totalRevenue)}",
-                subtitle = "${state.salesCount} Sales",
+                subtitle = "Cash: $currency${String.format(Locale.US, "%.0f", state.cashSales)} • Utang: $currency${String.format(Locale.US, "%.0f", state.creditSales)}",
                 accentColor = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("kpi_gross_sales")
             )
 
             AccountingKpiCard(
-                title = "Gross Profit",
-                value = "$currency${String.format(Locale.US, "%.2f", state.grossProfit)}",
-                subtitle = "After COGS & Tax",
-                accentColor = Color(0xFF10B981),
-                modifier = Modifier.weight(1f)
+                title = "Cash Flow / Cash in Hand",
+                value = "$currency${String.format(Locale.US, "%.2f", state.cashCollected)}",
+                subtitle = "Cash Sales + Utang Bayad",
+                accentColor = Color(0xFF0284C7),
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("kpi_cash_collected")
             )
         }
 
@@ -223,17 +227,21 @@ fun AnalyticsScreen(
             AccountingKpiCard(
                 title = "Cost of Goods (COGS)",
                 value = "$currency${String.format(Locale.US, "%.2f", state.totalCogs)}",
-                subtitle = "Product Costs",
+                subtitle = "Total Product Cost",
                 accentColor = Color(0xFFE11D48),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("kpi_cogs")
             )
 
             AccountingKpiCard(
-                title = "Taxes Collected",
-                value = "$currency${String.format(Locale.US, "%.2f", state.totalTax)}",
-                subtitle = "Sales Tax",
-                accentColor = Color(0xFFF59E0B),
-                modifier = Modifier.weight(1f)
+                title = "Net Profit",
+                value = "$currency${String.format(Locale.US, "%.2f", state.netProfit)}",
+                subtitle = "Revenue - COGS",
+                accentColor = Color(0xFF10B981),
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("kpi_net_profit")
             )
         }
 
@@ -244,11 +252,23 @@ fun AnalyticsScreen(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             AccountingKpiCard(
-                title = "Total Utang Receivables",
-                value = "$currency${String.format(Locale.US, "%.2f", totalUtang)}",
-                subtitle = "Uncollected Balances",
+                title = "Total Outstanding Utang",
+                value = "$currency${String.format(Locale.US, "%.2f", state.totalOutstandingUtang)}",
+                subtitle = "Unpaid Customer Receivables",
                 accentColor = Color(0xFF8B5CF6),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("kpi_outstanding_utang")
+            )
+
+            AccountingKpiCard(
+                title = "Sales Tax Collected",
+                value = "$currency${String.format(Locale.US, "%.2f", state.totalTax)}",
+                subtitle = "${state.salesCount} Sales Orders",
+                accentColor = Color(0xFFF59E0B),
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("kpi_tax_collected")
             )
         }
 

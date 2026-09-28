@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
 import com.example.data.local.entity.AppSettingsEntity
+import com.example.data.local.entity.CreditTransactionEntity
 import com.example.data.local.entity.DeliveryEntity
 import com.example.data.local.entity.SaleWithItems
 import com.example.data.repository.PosRepository
@@ -34,10 +35,16 @@ data class ChartDataPoint(
 
 data class AnalyticsState(
     val period: TimePeriod = TimePeriod.DAILY,
-    val totalRevenue: Double = 0.0,
-    val totalCogs: Double = 0.0,
-    val grossProfit: Double = 0.0,
+    val totalRevenue: Double = 0.0,            // Gross Sales (Cash Sales + Credit Sales)
+    val cashSales: Double = 0.0,               // Cash, GCash, Maya, Bank sales
+    val creditSales: Double = 0.0,             // Credit (Utang) sales
+    val cashCollected: Double = 0.0,           // Actual Cash Flow: Cash Sales + Utang Payments Received
+    val utangPaymentsCollected: Double = 0.0,   // "Bayad Utang" collected in this period
+    val totalCogs: Double = 0.0,               // Cost of Goods Sold (purchase cost of all items sold/borrowed)
+    val netProfit: Double = 0.0,               // Total Revenue - COGS
+    val grossProfit: Double = 0.0,             // Total Revenue - totalTax - totalCogs (retained for backward compatibility)
     val totalTax: Double = 0.0,
+    val totalOutstandingUtang: Double = 0.0,   // Active customer unpaid balances
     val salesCount: Int = 0,
     val lastYearRevenue: Double = 0.0,
     val yoyDelta: Double = 0.0,
@@ -74,9 +81,11 @@ class AnalyticsViewModel(application: Application) : AndroidViewModel(applicatio
     val analyticsState: StateFlow<AnalyticsState> = combine(
         repository.allSales,
         repository.allDeliveries,
+        repository.allCreditTransactions,
+        repository.totalOutstandingCredit,
         _selectedPeriod
-    ) { allSales, allDeliveries, period ->
-        computeAnalytics(allSales, allDeliveries, period)
+    ) { allSales, allDeliveries, allCreditTxs, totalUtang, period ->
+        computeAnalytics(allSales, allDeliveries, allCreditTxs, totalUtang ?: 0.0, period)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -104,6 +113,8 @@ class AnalyticsViewModel(application: Application) : AndroidViewModel(applicatio
     private fun computeAnalytics(
         allSales: List<SaleWithItems>,
         allDeliveries: List<DeliveryEntity>,
+        allCreditTransactions: List<CreditTransactionEntity>,
+        totalOutstandingUtang: Double,
         period: TimePeriod
     ): AnalyticsState {
         val now = System.currentTimeMillis()
@@ -150,8 +161,31 @@ class AnalyticsViewModel(application: Application) : AndroidViewModel(applicatio
 
         val periodSales = allSales.filter { it.sale.timestamp in startTime..endTime }
         val lastYearSales = allSales.filter { it.sale.timestamp in lastYearStart..lastYearEnd }
+        val periodCreditTxs = allCreditTransactions.filter { it.timestamp in startTime..endTime }
 
-        val totalRevenue = periodSales.sumOf { it.sale.totalAmount }
+        // Cash Sales: Tenders paid immediately (Cash, GCash, Maya, Bank)
+        val cashSales = periodSales.filter {
+            !it.sale.paymentType.contains("Utang", ignoreCase = true) &&
+                !it.sale.paymentType.contains("Credit", ignoreCase = true)
+        }.sumOf { it.sale.totalAmount }
+
+        // Credit Sales: Goods lent to customers on Utang (Accrual basis: recorded on date items leave inventory)
+        val creditSales = periodSales.filter {
+            it.sale.paymentType.contains("Utang", ignoreCase = true) ||
+                it.sale.paymentType.contains("Credit", ignoreCase = true)
+        }.sumOf { it.sale.totalAmount }
+
+        // Gross Sales (Total Revenue): Cash Sales + Credit (Utang) Sales
+        val totalRevenue = cashSales + creditSales
+
+        // Utang Payments Received in this period ("Bayad Utang" logged as CUSTOMER_PAYMENT / PAYMENT)
+        val utangPayments = periodCreditTxs.filter {
+            it.transactionType.contains("PAYMENT", ignoreCase = true)
+        }.sumOf { it.amount }
+
+        // Cash Collected (Actual Cash Flow): Cash Sales + Utang Payments Received
+        val cashCollected = cashSales + utangPayments
+
         val totalTax = periodSales.sumOf { it.sale.taxAmount }
 
         var totalCogs = 0.0
@@ -163,6 +197,8 @@ class AnalyticsViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
 
+        // Net Profit = Total Revenue - COGS
+        val netProfit = totalRevenue - totalCogs
         val grossProfit = totalRevenue - totalTax - totalCogs
         val lastYearRevenue = lastYearSales.sumOf { it.sale.totalAmount }
         val yoyDelta = totalRevenue - lastYearRevenue
@@ -231,9 +267,15 @@ class AnalyticsViewModel(application: Application) : AndroidViewModel(applicatio
         return AnalyticsState(
             period = period,
             totalRevenue = totalRevenue,
+            cashSales = cashSales,
+            creditSales = creditSales,
+            cashCollected = cashCollected,
+            utangPaymentsCollected = utangPayments,
             totalCogs = totalCogs,
+            netProfit = netProfit,
             grossProfit = grossProfit,
             totalTax = totalTax,
+            totalOutstandingUtang = totalOutstandingUtang,
             salesCount = periodSales.size,
             lastYearRevenue = lastYearRevenue,
             yoyDelta = yoyDelta,
@@ -258,7 +300,13 @@ class AnalyticsViewModel(application: Application) : AndroidViewModel(applicatio
             totalTax = state.totalTax,
             totalSalesCount = state.salesCount,
             totalRestockExpenditure = state.totalDeliveryCost,
-            topSellingItems = state.topSellingItems
+            topSellingItems = state.topSellingItems,
+            cashCollected = state.cashCollected,
+            cashSales = state.cashSales,
+            creditSales = state.creditSales,
+            utangPaymentsCollected = state.utangPaymentsCollected,
+            netProfit = state.netProfit,
+            totalOutstandingUtang = state.totalOutstandingUtang
         )
 
         PrinterManager.printHtmlDocument(

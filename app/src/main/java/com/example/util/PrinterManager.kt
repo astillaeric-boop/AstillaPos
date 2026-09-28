@@ -167,12 +167,18 @@ object PrinterManager {
         totalTax: Double,
         totalSalesCount: Int,
         totalRestockExpenditure: Double,
-        topSellingItems: List<Pair<String, Int>> = emptyList()
+        topSellingItems: List<Pair<String, Int>> = emptyList(),
+        cashCollected: Double = 0.0,
+        cashSales: Double = 0.0,
+        creditSales: Double = 0.0,
+        utangPaymentsCollected: Double = 0.0,
+        netProfit: Double = totalRevenue - totalCogs,
+        totalOutstandingUtang: Double = 0.0
     ): String {
         val dateFormat = SimpleDateFormat("MMMM dd, yyyy - hh:mm a", Locale.getDefault())
         val generatedDate = dateFormat.format(Date())
         val currency = settings.currencySymbol
-        val marginPercent = if (totalRevenue > 0) (grossProfit / totalRevenue) * 100.0 else 0.0
+        val marginPercent = if (totalRevenue > 0) (netProfit / totalRevenue) * 100.0 else 0.0
 
         val topItemsHtml = StringBuilder()
         if (topSellingItems.isNotEmpty()) {
@@ -280,20 +286,44 @@ object PrinterManager {
                         <td style="text-align: right;"><strong>$totalSalesCount</strong> orders</td>
                     </tr>
                     <tr>
-                        <td>Total Gross Revenue</td>
+                        <td>Gross Sales (Total Revenue)</td>
                         <td style="text-align: right;"><strong>$currency${String.format(Locale.US, "%,.2f", totalRevenue)}</strong></td>
                     </tr>
+                    ${if (cashSales > 0 || creditSales > 0) """
+                    <tr style="font-size: 12px; color: #64748b;">
+                        <td style="padding-left: 20px;">↳ Cash / Direct Sales</td>
+                        <td style="text-align: right;">$currency${String.format(Locale.US, "%,.2f", cashSales)}</td>
+                    </tr>
+                    <tr style="font-size: 12px; color: #64748b;">
+                        <td style="padding-left: 20px;">↳ Credit (Utang) Sales</td>
+                        <td style="text-align: right;">$currency${String.format(Locale.US, "%,.2f", creditSales)}</td>
+                    </tr>
+                    """ else ""}
+                    <tr style="background: #f0f9ff;">
+                        <td><strong>Cash Collected (Cash Flow)</strong></td>
+                        <td style="text-align: right; color: #0284c7;"><strong>$currency${String.format(Locale.US, "%,.2f", cashCollected)}</strong></td>
+                    </tr>
+                    ${if (utangPaymentsCollected > 0) """
+                    <tr style="font-size: 12px; color: #64748b;">
+                        <td style="padding-left: 20px;">↳ Utang Payments Received</td>
+                        <td style="text-align: right;">$currency${String.format(Locale.US, "%,.2f", utangPaymentsCollected)}</td>
+                    </tr>
+                    """ else ""}
                     <tr>
                         <td>Cost of Goods Sold (COGS)</td>
                         <td style="text-align: right; color: #dc2626;">-$currency${String.format(Locale.US, "%,.2f", totalCogs)}</td>
                     </tr>
                     <tr class="highlight-row">
-                        <td>Gross Profit</td>
-                        <td style="text-align: right; color: #16a34a;">$currency${String.format(Locale.US, "%,.2f", grossProfit)}</td>
+                        <td><strong>Net Profit (Revenue - COGS)</strong></td>
+                        <td style="text-align: right; color: #16a34a;"><strong>$currency${String.format(Locale.US, "%,.2f", netProfit)}</strong></td>
                     </tr>
                     <tr>
-                        <td>Gross Profit Margin</td>
+                        <td>Profit Margin</td>
                         <td style="text-align: right;"><strong>${String.format(Locale.US, "%.1f", marginPercent)}%</strong></td>
+                    </tr>
+                    <tr>
+                        <td>Total Outstanding Customer Utang</td>
+                        <td style="text-align: right; color: #7c3aed;"><strong>$currency${String.format(Locale.US, "%,.2f", totalOutstandingUtang)}</strong></td>
                     </tr>
                     <tr>
                         <td>Sales Tax Collected (${settings.taxRate}%)</td>

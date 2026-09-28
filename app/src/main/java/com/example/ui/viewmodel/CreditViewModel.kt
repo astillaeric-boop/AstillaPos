@@ -281,7 +281,7 @@ class CreditViewModel(application: Application) : AndroidViewModel(application) 
                 val note = "Paid via $paymentMethod"
                 val tx = repository.recordCreditTransaction(
                     customerId = customerId,
-                    transactionType = "PAYMENT",
+                    transactionType = "CUSTOMER_PAYMENT",
                     amount = amount,
                     itemSummary = note
                 )

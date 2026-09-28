@@ -5,6 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.example.data.local.dao.AppSettingsDao
+import com.example.data.local.dao.CreditTransactionDao
 import com.example.data.local.dao.CustomerDao
 import com.example.data.local.dao.DeliveryDao
 import com.example.data.local.dao.ProductDao
@@ -29,7 +30,7 @@ import com.example.data.local.entity.SaleItemEntity
         CustomerEntity::class,
         CreditTransactionEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -38,6 +39,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun deliveryDao(): DeliveryDao
     abstract fun appSettingsDao(): AppSettingsDao
     abstract fun customerDao(): CustomerDao
+    abstract fun creditTransactionDao(): CreditTransactionDao
 
     companion object {
         @Volatile
