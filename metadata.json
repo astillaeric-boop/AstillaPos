@@ -1,0 +1,6 @@
+{
+  "name": "Astilla POS",
+  "description": "Native Android POS and Inventory Management app with CameraX barcode scanning, offline Room DB, and printable reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
