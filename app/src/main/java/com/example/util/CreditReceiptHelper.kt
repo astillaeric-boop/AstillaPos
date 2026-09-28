@@ -63,9 +63,12 @@ object CreditReceiptHelper {
         val storeTitle = if (storeSettings.storeName.isBlank() || storeSettings.storeName == "Astilla POS Store") "Astilla Store" else storeSettings.storeName
 
         if (isBorrow) {
+            val timestamp = if (transaction.timestamp > 0) transaction.timestamp else System.currentTimeMillis()
+            val dateStr = dateFormatter.format(Date(timestamp))
             val sb = StringBuilder()
             sb.appendLine("[$storeTitle] Borrow Notice")
             sb.appendLine()
+            sb.appendLine("Date: $dateStr")
             sb.appendLine("Hi ${customer.name}, you borrowed:")
             if (transaction.itemSummary.isNotBlank()) {
                 transaction.itemSummary.split("\n", ", ").forEach { rawItem ->

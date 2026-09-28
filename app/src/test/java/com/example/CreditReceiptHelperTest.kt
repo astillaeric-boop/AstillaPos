@@ -36,6 +36,7 @@ class CreditReceiptHelperTest {
         val receipt = CreditReceiptHelper.buildTransactionReceipt(settings, customer, transaction)
 
         assertTrue(receipt.contains("Borrow Notice"))
+        assertTrue(receipt.contains("Date: "))
         assertTrue(receipt.contains("Hi Aling Nena, you borrowed:"))
         assertTrue(receipt.contains("- Arabica Coffee x2 (₱250)"))
         assertTrue(receipt.contains("Total Borrowed: ₱250.00"))
@@ -56,6 +57,7 @@ class CreditReceiptHelperTest {
         val receipt = CreditReceiptHelper.buildTransactionReceipt(settings, customer, transaction)
 
         assertTrue(receipt.contains("[Astilla Store] Borrow Notice"))
+        assertTrue(receipt.contains("Date: "))
         assertTrue(receipt.contains("Hi Aling Nena, you borrowed:"))
         assertTrue(receipt.contains("- Milk x2 (₱120)"))
         assertTrue(receipt.contains("- Soy Sauce x1 (₱35)"))
