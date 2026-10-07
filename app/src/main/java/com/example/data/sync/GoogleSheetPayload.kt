@@ -32,6 +32,7 @@ data class SyncProduct(
     val id: Long,
     val name: String,
     val barcode: String,
+    val category: String = "General",
     val costPrice: Double,
     val retailPrice: Double,
     val stockQuantity: Int

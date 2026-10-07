@@ -5,9 +5,11 @@ import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
+import com.example.data.local.dao.CategorySalesSummary
 import com.example.data.local.entity.AppSettingsEntity
 import com.example.data.local.entity.CreditTransactionEntity
 import com.example.data.local.entity.DeliveryEntity
+import com.example.data.local.entity.ProductEntity
 import com.example.data.local.entity.SaleWithItems
 import com.example.data.repository.PosRepository
 import com.example.util.PrinterManager
@@ -52,7 +54,8 @@ data class AnalyticsState(
     val totalDeliveryCost: Double = 0.0,
     val deliveryCount: Int = 0,
     val chartPoints: List<ChartDataPoint> = emptyList(),
-    val topSellingItems: List<Pair<String, Int>> = emptyList()
+    val topSellingItems: List<Pair<String, Int>> = emptyList(),
+    val categorySales: List<CategorySalesSummary> = emptyList()
 )
 
 class AnalyticsViewModel(application: Application) : AndroidViewModel(application) {
@@ -79,13 +82,14 @@ class AnalyticsViewModel(application: Application) : AndroidViewModel(applicatio
     val selectedPeriod: StateFlow<TimePeriod> = _selectedPeriod.asStateFlow()
 
     val analyticsState: StateFlow<AnalyticsState> = combine(
-        repository.allSales,
-        repository.allDeliveries,
-        repository.allCreditTransactions,
+        combine(repository.allSales, repository.allDeliveries, repository.allCreditTransactions) { sales, del, credit ->
+            Triple(sales, del, credit)
+        },
         repository.totalOutstandingCredit,
-        _selectedPeriod
-    ) { allSales, allDeliveries, allCreditTxs, totalUtang, period ->
-        computeAnalytics(allSales, allDeliveries, allCreditTxs, totalUtang ?: 0.0, period)
+        _selectedPeriod,
+        repository.allProducts
+    ) { (allSales, allDeliveries, allCreditTxs), totalUtang, period, allProducts ->
+        computeAnalytics(allSales, allDeliveries, allCreditTxs, totalUtang ?: 0.0, period, allProducts)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -115,7 +119,8 @@ class AnalyticsViewModel(application: Application) : AndroidViewModel(applicatio
         allDeliveries: List<DeliveryEntity>,
         allCreditTransactions: List<CreditTransactionEntity>,
         totalOutstandingUtang: Double,
-        period: TimePeriod
+        period: TimePeriod,
+        allProducts: List<ProductEntity> = emptyList()
     ): AnalyticsState {
         val now = System.currentTimeMillis()
         val calendar = Calendar.getInstance()
@@ -264,6 +269,27 @@ class AnalyticsViewModel(application: Application) : AndroidViewModel(applicatio
             .sortedByDescending { it.second }
             .take(5)
 
+        // Compute Category-based Sales Breakdown
+        val productCategoryMap = allProducts.associate { it.id to it.category.ifBlank { "General" } }
+        val categoryStats = mutableMapOf<String, Pair<Int, Double>>() // category -> (unitsSold, totalRevenue)
+        for (sale in periodSales) {
+            for (item in sale.items) {
+                val cat = productCategoryMap[item.productId] ?: "General"
+                val existing = categoryStats[cat] ?: Pair(0, 0.0)
+                categoryStats[cat] = Pair(
+                    existing.first + item.quantity,
+                    existing.second + (item.unitPrice * item.quantity)
+                )
+            }
+        }
+        val categorySales = categoryStats.map { (catName, stats) ->
+            CategorySalesSummary(
+                category = catName,
+                unitsSold = stats.first,
+                totalRevenue = stats.second
+            )
+        }.sortedByDescending { it.totalRevenue }
+
         return AnalyticsState(
             period = period,
             totalRevenue = totalRevenue,
@@ -283,7 +309,8 @@ class AnalyticsViewModel(application: Application) : AndroidViewModel(applicatio
             totalDeliveryCost = totalDeliveryCost,
             deliveryCount = periodDeliveries.size,
             chartPoints = chartPoints,
-            topSellingItems = topSellingItems
+            topSellingItems = topSellingItems,
+            categorySales = categorySales
         )
     }
 

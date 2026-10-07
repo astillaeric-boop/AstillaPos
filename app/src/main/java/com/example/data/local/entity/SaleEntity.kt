@@ -11,5 +11,7 @@ data class SaleEntity(
     val totalAmount: Double,
     val taxAmount: Double,
     val paymentType: String,
+    val cashTendered: Double = 0.0,
+    val changeDue: Double = 0.0,
     val isSynced: Boolean = false
 )

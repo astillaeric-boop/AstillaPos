@@ -59,6 +59,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import com.example.ui.components.CategoryFilterRow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -107,6 +108,8 @@ fun InventoryScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val stockFilter by viewModel.stockFilter.collectAsStateWithLifecycle()
+    val availableCategories by viewModel.availableCategories.collectAsStateWithLifecycle()
+    val selectedCategoryFilter by viewModel.selectedCategoryFilter.collectAsStateWithLifecycle()
     val isAddDialogOpen by viewModel.isAddProductDialogOpen.collectAsStateWithLifecycle()
     val productForm by viewModel.productForm.collectAsStateWithLifecycle()
     val isBarcodeScannerOpen by viewModel.isBarcodeScannerOpen.collectAsStateWithLifecycle()
@@ -203,6 +206,16 @@ fun InventoryScreen(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
+                        // Category Filter Row
+                        CategoryFilterRow(
+                            categories = availableCategories,
+                            selectedCategory = selectedCategoryFilter,
+                            onCategorySelected = { viewModel.setCategoryFilter(it) },
+                            testTagPrefix = "inventory_category_chip"
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilterChip(
                                 selected = stockFilter == StockFilter.ALL,
@@ -271,10 +284,12 @@ fun InventoryScreen(
             AddEditProductDialog(
                 form = productForm,
                 currency = settings.currencySymbol,
+                availableCategories = availableCategories,
                 onFormChange = { viewModel.updateProductForm(it) },
                 onScanBarcode = { viewModel.openScannerForBarcode() },
                 onPickImageFromUri = { uri -> viewModel.saveProductImageFromUri(context, uri) },
                 onDirectImageCaptured = { path -> viewModel.setProductImage(path) },
+                onAddNewCategory = { viewModel.addNewCategory(it) },
                 onSave = { viewModel.saveProduct() },
                 onDismiss = { viewModel.closeAddProductDialog() }
             )
@@ -368,12 +383,29 @@ fun ProductInventoryCard(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                if (product.barcode.isNotBlank()) {
-                    Text(
-                        text = "SKU: ${product.barcode}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                    ) {
+                        Text(
+                            text = product.category,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    if (product.barcode.isNotBlank()) {
+                        Text(
+                            text = "SKU: ${product.barcode}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))
@@ -435,216 +467,6 @@ fun ProductInventoryCard(
             }
         }
     }
-}
-
-@Composable
-fun AddEditProductDialog(
-    form: ProductFormState,
-    currency: String,
-    onFormChange: (ProductFormState) -> Unit,
-    onScanBarcode: () -> Unit,
-    onPickImageFromUri: (Uri) -> Unit,
-    onDirectImageCaptured: (String?) -> Unit,
-    onSave: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-    var tempCameraUri by remember { mutableStateOf<Uri?>(null) }
-
-    val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture()
-    ) { success ->
-        if (success && tempCameraUri != null) {
-            onDirectImageCaptured(tempCameraUri.toString())
-        }
-    }
-
-    val cameraPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            val uri = ImageStorageHelper.createCameraImageUri(context)
-            tempCameraUri = uri
-            cameraLauncher.launch(uri)
-        } else {
-            Toast.makeText(context, "Camera permission needed to capture product photo", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    val photoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            onPickImageFromUri(uri)
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(if (form.id == 0L) "Add New Product" else "Edit Product", fontWeight = FontWeight.Bold)
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                // Photo Area with Camera & Gallery options
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(10.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(72.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (!form.imagePath.isNullOrBlank()) {
-                                AsyncImage(
-                                    model = form.imagePath,
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                Icon(Icons.Default.Image, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Product Picture", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                            Text("Saved permanently to phone", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(modifier = Modifier.height(6.dp))
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                FilledTonalButton(
-                                    onClick = {
-                                        cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
-                                    },
-                                    shape = RoundedCornerShape(8.dp),
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                    modifier = Modifier.height(34.dp)
-                                ) {
-                                    Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Camera", fontSize = 11.sp)
-                                }
-
-                                OutlinedButton(
-                                    onClick = {
-                                        photoPickerLauncher.launch(
-                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                        )
-                                    },
-                                    shape = RoundedCornerShape(8.dp),
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                    modifier = Modifier.height(34.dp)
-                                ) {
-                                    Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Gallery", fontSize = 11.sp)
-                                }
-
-                                if (form.imagePath != null) {
-                                    IconButton(
-                                        onClick = { onDirectImageCaptured(null) },
-                                        modifier = Modifier.size(34.dp)
-                                    ) {
-                                        Icon(Icons.Default.Close, contentDescription = "Clear", tint = Color(0xFFDC2626), modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                OutlinedTextField(
-                    value = form.name,
-                    onValueChange = { onFormChange(form.copy(name = it)) },
-                    label = { Text("Product Name *") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                // Barcode SKU field with dedicated Camera Scanner button
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    OutlinedTextField(
-                        value = form.barcode,
-                        onValueChange = { onFormChange(form.copy(barcode = it)) },
-                        label = { Text("Barcode / SKU") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    IconButton(
-                        onClick = onScanBarcode,
-                        modifier = Modifier
-                            .size(52.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.primaryContainer)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.QrCodeScanner,
-                            contentDescription = "Scan Barcode with Camera",
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = form.costPrice,
-                        onValueChange = { onFormChange(form.copy(costPrice = it)) },
-                        label = { Text("Cost Price ($currency)") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    OutlinedTextField(
-                        value = form.retailPrice,
-                        onValueChange = { onFormChange(form.copy(retailPrice = it)) },
-                        label = { Text("Retail Price ($currency) *") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                OutlinedTextField(
-                    value = form.stockQuantity,
-                    onValueChange = { onFormChange(form.copy(stockQuantity = it)) },
-                    label = { Text("Current Stock Count") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            Button(onClick = onSave) {
-                Text("Save Product")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
 }
 
 @Composable

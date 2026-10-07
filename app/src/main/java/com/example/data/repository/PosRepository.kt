@@ -2,7 +2,9 @@ package com.example.data.repository
 
 import androidx.room.withTransaction
 import com.example.data.local.AppDatabase
+import com.example.data.local.dao.CategorySalesSummary
 import com.example.data.local.entity.AppSettingsEntity
+import com.example.data.local.entity.CategoryEntity
 import com.example.data.local.entity.CreditTransactionEntity
 import com.example.data.local.entity.CustomerEntity
 import com.example.data.local.entity.DeliveryEntity
@@ -18,6 +20,7 @@ import kotlinx.coroutines.flow.firstOrNull
 
 class PosRepository(private val database: AppDatabase) {
     private val productDao = database.productDao()
+    private val categoryDao = database.categoryDao()
     private val saleDao = database.saleDao()
     private val deliveryDao = database.deliveryDao()
     private val appSettingsDao = database.appSettingsDao()
@@ -25,6 +28,7 @@ class PosRepository(private val database: AppDatabase) {
     private val creditTransactionDao = database.creditTransactionDao()
 
     val allProducts: Flow<List<ProductEntity>> = productDao.getAllProducts()
+    val allCategories: Flow<List<CategoryEntity>> = categoryDao.getAllCategories()
     val allSales: Flow<List<SaleWithItems>> = saleDao.getAllSalesWithItems()
     val allDeliveries: Flow<List<DeliveryEntity>> = deliveryDao.getAllDeliveries()
     val allDeliveriesWithItems: Flow<List<DeliveryWithItems>> = deliveryDao.getAllDeliveriesWithItems()
@@ -34,6 +38,26 @@ class PosRepository(private val database: AppDatabase) {
     val totalOutstandingCredit: Flow<Double?> = customerDao.getTotalOutstandingCredit()
 
     fun searchProducts(query: String): Flow<List<ProductEntity>> = productDao.searchProducts(query)
+
+    fun getProductsByCategory(category: String): Flow<List<ProductEntity>> =
+        if (category == "All" || category.isBlank()) productDao.getAllProducts() else productDao.getProductsByCategory(category)
+
+    fun getSalesByCategory(startDate: Long, endDate: Long): Flow<List<CategorySalesSummary>> =
+        productDao.getSalesByCategory(startDate, endDate)
+
+    suspend fun getSalesByCategoryDirect(startDate: Long, endDate: Long): List<CategorySalesSummary> =
+        productDao.getSalesByCategoryDirect(startDate, endDate)
+
+    suspend fun insertCategory(name: String): Long {
+        val trimmed = name.trim()
+        val existing = categoryDao.getCategoryByName(trimmed)
+        if (existing != null) return existing.id
+        return categoryDao.insertCategory(CategoryEntity(name = trimmed))
+    }
+
+    suspend fun deleteCategory(category: CategoryEntity) {
+        categoryDao.deleteCategory(category)
+    }
 
     suspend fun getProductById(id: Long): ProductEntity? = productDao.getProductById(id)
 
@@ -301,6 +325,7 @@ class PosRepository(private val database: AppDatabase) {
             saleDao.deleteAllSales()
             deliveryDao.deleteAllDeliveries()
             productDao.deleteAllProducts()
+            categoryDao.deleteAllCategories()
             appSettingsDao.clearSettings()
             appSettingsDao.insertOrUpdate(AppSettingsEntity())
         }
@@ -309,6 +334,19 @@ class PosRepository(private val database: AppDatabase) {
     suspend fun seedDemoDataIfEmpty() {
         // Also run automatic cleanup of receipts older than 6 months on startup
         cleanupOldReceipts()
+
+        // Seed default categories if empty
+        val existingCategories = categoryDao.getAllCategories().firstOrNull()
+        if (existingCategories.isNullOrEmpty()) {
+            val defaultCategories = listOf(
+                "Beverages",
+                "Snacks",
+                "Canned Goods",
+                "Toiletries",
+                "General"
+            )
+            categoryDao.insertCategories(defaultCategories.map { CategoryEntity(name = it) })
+        }
 
         // Seed demo customers if empty
         val existingCustomers = customerDao.getAllCustomers().firstOrNull()
@@ -402,6 +440,7 @@ class PosRepository(private val database: AppDatabase) {
                 ProductEntity(
                     name = "Arabica Premium Coffee 250g",
                     barcode = "8901234567890",
+                    category = "Beverages",
                     imagePath = null,
                     costPrice = 120.00,
                     retailPrice = 185.00,
@@ -410,6 +449,7 @@ class PosRepository(private val database: AppDatabase) {
                 ProductEntity(
                     name = "Organic Green Tea 100g",
                     barcode = "8901234567891",
+                    category = "Beverages",
                     imagePath = null,
                     costPrice = 75.00,
                     retailPrice = 110.00,
@@ -418,6 +458,7 @@ class PosRepository(private val database: AppDatabase) {
                 ProductEntity(
                     name = "Dark Chocolate Bar 70%",
                     barcode = "8901234567892",
+                    category = "Snacks",
                     imagePath = null,
                     costPrice = 55.00,
                     retailPrice = 90.00,
@@ -426,6 +467,7 @@ class PosRepository(private val database: AppDatabase) {
                 ProductEntity(
                     name = "Cold Brew Can 240ml",
                     barcode = "8901234567893",
+                    category = "Beverages",
                     imagePath = null,
                     costPrice = 45.00,
                     retailPrice = 75.00,
@@ -434,6 +476,7 @@ class PosRepository(private val database: AppDatabase) {
                 ProductEntity(
                     name = "Almond Milk 1L",
                     barcode = "8901234567894",
+                    category = "Beverages",
                     imagePath = null,
                     costPrice = 110.00,
                     retailPrice = 160.00,
@@ -442,6 +485,7 @@ class PosRepository(private val database: AppDatabase) {
                 ProductEntity(
                     name = "Honey Oat Cookies 150g",
                     barcode = "8901234567895",
+                    category = "Snacks",
                     imagePath = null,
                     costPrice = 60.00,
                     retailPrice = 95.00,
@@ -450,6 +494,7 @@ class PosRepository(private val database: AppDatabase) {
                 ProductEntity(
                     name = "Mineral Spring Water 500ml",
                     barcode = "8901234567896",
+                    category = "Beverages",
                     imagePath = null,
                     costPrice = 12.00,
                     retailPrice = 25.00,

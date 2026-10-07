@@ -88,6 +88,7 @@ class GoogleSheetSyncWorker(
             pObj.put("id", product.id)
             pObj.put("name", product.name)
             pObj.put("barcode", product.barcode)
+            pObj.put("category", product.category)
             pObj.put("costPrice", product.costPrice)
             pObj.put("retailPrice", product.retailPrice)
             pObj.put("stockQuantity", product.stockQuantity)

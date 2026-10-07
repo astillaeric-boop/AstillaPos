@@ -83,6 +83,7 @@ import com.example.data.local.entity.CustomerEntity
 import com.example.data.local.entity.ProductEntity
 import com.example.data.local.entity.SaleWithItems
 import com.example.ui.components.CameraBarcodeScannerDialog
+import com.example.ui.components.CashCheckoutDialog
 import com.example.ui.viewmodel.CartItem
 import com.example.ui.viewmodel.PosUiState
 import com.example.ui.viewmodel.PosViewModel
@@ -103,6 +104,8 @@ fun PosScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val customers by viewModel.customers.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val availableCategories by viewModel.availableCategories.collectAsStateWithLifecycle()
+    val selectedCategoryFilter by viewModel.selectedCategoryFilter.collectAsStateWithLifecycle()
 
     val cartSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -179,6 +182,16 @@ fun PosScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("pos_search_input")
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Category Filter Row
+                    com.example.ui.components.CategoryFilterRow(
+                        categories = availableCategories,
+                        selectedCategory = selectedCategoryFilter,
+                        onCategorySelected = { viewModel.onCategorySelected(it) },
+                        testTagPrefix = "pos_category_chip"
                     )
                 }
             }
@@ -352,10 +365,22 @@ fun PosScreen(
                     onClear = { viewModel.clearCart() },
                     onSelectPayment = { viewModel.setPaymentType(it) },
                     onSelectCreditCustomer = { viewModel.setSelectedCreditCustomerId(it) },
-                    onCheckout = { viewModel.checkout() },
+                    onCheckout = { viewModel.initiateCheckout() },
                     onClose = { viewModel.closeCartSheet() }
                 )
             }
+        }
+
+        // Cash Tendered & Change Due Calculator Dialog
+        if (uiState.isCashCheckoutDialogOpen) {
+            CashCheckoutDialog(
+                totalAmount = uiState.totalAmount,
+                currency = settings.currencySymbol,
+                onConfirm = { tendered, change ->
+                    viewModel.checkout(cashTendered = tendered, changeDue = change)
+                },
+                onDismiss = { viewModel.dismissCashCheckoutDialog() }
+            )
         }
 
         // Printable Receipt Dialog
@@ -881,6 +906,35 @@ fun ReceiptDialog(
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
+
+                        if (saleWithItems.sale.cashTendered > 0.0) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Cash Received:", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                                Text(
+                                    "$currency${String.format(Locale.US, "%.2f", saleWithItems.sale.cashTendered)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("CHANGE DUE:", fontWeight = FontWeight.ExtraBold, color = Color(0xFF10B981))
+                                Text(
+                                    "$currency${String.format(Locale.US, "%.2f", saleWithItems.sale.changeDue)}",
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF10B981),
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -945,6 +999,11 @@ private fun buildReceiptPlainText(
     }
     sb.appendLine("TOTAL: ${settings.currencySymbol}${sale.totalAmount}")
     sb.appendLine("Paid via: ${sale.paymentType}")
+    if (sale.cashTendered > 0.0) {
+        sb.appendLine("--------------------------------")
+        sb.appendLine("Cash Received: ${settings.currencySymbol}${String.format(Locale.US, "%.2f", sale.cashTendered)}")
+        sb.appendLine("CHANGE DUE:    ${settings.currencySymbol}${String.format(Locale.US, "%.2f", sale.changeDue)}")
+    }
     sb.appendLine("================================")
     sb.appendLine("Thank you for your purchase!")
     return sb.toString()

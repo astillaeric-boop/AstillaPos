@@ -33,6 +33,7 @@ data class PosUiState(
     val totalAmount: Double = 0.0,
     val isScannerOpen: Boolean = false,
     val isCartSheetOpen: Boolean = false,
+    val isCashCheckoutDialogOpen: Boolean = false,
     val selectedPaymentType: String = "Cash",
     val selectedCreditCustomerId: Long? = null,
     val lastCompletedSale: SaleWithItems? = null,
@@ -47,6 +48,23 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _selectedCategoryFilter = MutableStateFlow("All")
+    val selectedCategoryFilter: StateFlow<String> = _selectedCategoryFilter.asStateFlow()
+
+    val availableCategories: StateFlow<List<String>> = repository.allCategories
+        .map { list ->
+            val set = mutableListOf("General", "Beverages", "Snacks", "Canned Goods", "Toiletries")
+            list.forEach { cat ->
+                if (!set.contains(cat.name)) set.add(cat.name)
+            }
+            set
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = listOf("General", "Beverages", "Snacks", "Canned Goods", "Toiletries")
+        )
 
     val settings: StateFlow<AppSettingsEntity> = repository.appSettings
         .map { it ?: AppSettingsEntity() }
@@ -65,21 +83,29 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
 
     val products: StateFlow<List<ProductEntity>> = combine(
         repository.allProducts,
-        _searchQuery
-    ) { all, query ->
-        if (query.isBlank()) {
-            all
-        } else {
+        _searchQuery,
+        _selectedCategoryFilter
+    ) { all, query, catFilter ->
+        var list = all
+        if (catFilter != "All" && catFilter.isNotBlank()) {
+            list = list.filter { it.category.equals(catFilter, ignoreCase = true) }
+        }
+        if (query.isNotBlank()) {
             val q = query.trim().lowercase()
-            all.filter {
+            list = list.filter {
                 it.name.lowercase().contains(q) || it.barcode.lowercase().contains(q)
             }
         }
+        list
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
     )
+
+    fun onCategorySelected(category: String) {
+        _selectedCategoryFilter.value = category
+    }
 
     private val _uiState = MutableStateFlow(PosUiState())
     val uiState: StateFlow<PosUiState> = _uiState.asStateFlow()
@@ -195,7 +221,22 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    fun checkout() {
+    fun initiateCheckout() {
+        val currentState = _uiState.value
+        if (currentState.cartItems.isEmpty()) return
+
+        if (currentState.selectedPaymentType.equals("Cash", ignoreCase = true)) {
+            _uiState.value = _uiState.value.copy(isCashCheckoutDialogOpen = true)
+        } else {
+            checkout(cashTendered = 0.0, changeDue = 0.0)
+        }
+    }
+
+    fun dismissCashCheckoutDialog() {
+        _uiState.value = _uiState.value.copy(isCashCheckoutDialogOpen = false)
+    }
+
+    fun checkout(cashTendered: Double = 0.0, changeDue: Double = 0.0) {
         val currentState = _uiState.value
         if (currentState.cartItems.isEmpty()) return
 
@@ -205,6 +246,8 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                 totalAmount = currentState.totalAmount,
                 taxAmount = currentState.taxAmount,
                 paymentType = currentState.selectedPaymentType,
+                cashTendered = cashTendered,
+                changeDue = changeDue,
                 isSynced = false
             )
 
@@ -247,6 +290,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                 taxAmount = 0.0,
                 totalAmount = 0.0,
                 isCartSheetOpen = false,
+                isCashCheckoutDialogOpen = false,
                 lastCompletedSale = completedSale,
                 isReceiptDialogOpen = true,
                 toastMessage = if (currentState.selectedPaymentType.contains("Utang", ignoreCase = true)) {

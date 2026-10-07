@@ -52,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.ui.components.CategorySalesCard
 import com.example.ui.viewmodel.AnalyticsState
 import com.example.ui.viewmodel.AnalyticsViewModel
 import com.example.ui.viewmodel.ChartDataPoint
@@ -327,6 +328,15 @@ fun AnalyticsScreen(
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Sales by Category Breakdown Card
+        CategorySalesCard(
+            categorySales = state.categorySales,
+            currency = currency,
+            periodLabel = state.period.displayName
+        )
 
         // Top Selling Leaderboard
         if (state.topSellingItems.isNotEmpty()) {

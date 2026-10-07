@@ -1,7 +1,4 @@
-package com.example.data.sync
-
-object GoogleAppsScriptTemplate {
-    const val SCRIPT_CODE = """/**
+/**
  * ASTILLA POS - GOOGLE APPS SCRIPT WEB APP SYNC CONNECTOR
  * 
  * INSTRUCTIONS:
@@ -204,6 +201,4 @@ function getOrCreateSheet(ss, sheetName, headers) {
     sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#f1f5f9");
   }
   return sheet;
-}
-"""
 }

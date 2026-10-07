@@ -141,6 +141,18 @@ object PrinterManager {
                     <td style="font-size: 11px; color: #555;">Payment Type:</td>
                     <td class="text-right" style="font-size: 11px; color: #555;">${escapeHtml(sale.paymentType)}</td>
                 </tr>
+                ${
+            if (sale.cashTendered > 0.0) """
+                <tr>
+                    <td style="font-size: 12px; padding-top: 4px;">Cash Received:</td>
+                    <td class="text-right" style="font-size: 12px; padding-top: 4px;">$currency${String.format(Locale.US, "%.2f", sale.cashTendered)}</td>
+                </tr>
+                <tr style="font-weight: bold; color: #15803d;">
+                    <td style="font-size: 13px; padding-top: 2px;">CHANGE DUE:</td>
+                    <td class="text-right" style="font-size: 13px; padding-top: 2px;">$currency${String.format(Locale.US, "%.2f", sale.changeDue)}</td>
+                </tr>
+                """ else ""
+        }
             </table>
             
             <div class="divider"></div>
@@ -366,22 +378,22 @@ object PrinterManager {
 
         // Double height & width for store name: GS ! 0x11
         out.write(byteArrayOf(GS, 0x21, 0x11))
-        out.write("${settings.storeName}\n".toByteArray(Charsets.US_ASCII))
+        out.write("${settings.storeName}\n".toByteArray(Charsets.UTF_8))
 
         // Normal text size: GS ! 0x00
         out.write(byteArrayOf(GS, 0x21, 0x00))
         if (settings.businessAddress.isNotBlank()) {
             val addr = "${settings.businessAddress}${if (settings.zipCode.isNotBlank()) " " + settings.zipCode else ""}\n"
-            out.write(addr.toByteArray(Charsets.US_ASCII))
+            out.write(addr.toByteArray(Charsets.UTF_8))
         }
         if (settings.phoneNumber.isNotBlank()) {
-            out.write("Tel: ${settings.phoneNumber}\n".toByteArray(Charsets.US_ASCII))
+            out.write("Tel: ${settings.phoneNumber}\n".toByteArray(Charsets.UTF_8))
         }
-        out.write("OFFICIAL RECEIPT\n".toByteArray(Charsets.US_ASCII))
+        out.write("OFFICIAL RECEIPT\n".toByteArray(Charsets.UTF_8))
         val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-        out.write("Date: ${dateFormat.format(Date(sale.timestamp))}\n".toByteArray(Charsets.US_ASCII))
-        out.write("Receipt #${sale.id}\n".toByteArray(Charsets.US_ASCII))
-        out.write("--------------------------------\n".toByteArray(Charsets.US_ASCII))
+        out.write("Date: ${dateFormat.format(Date(sale.timestamp))}\n".toByteArray(Charsets.UTF_8))
+        out.write("Receipt #${sale.id}\n".toByteArray(Charsets.UTF_8))
+        out.write("--------------------------------\n".toByteArray(Charsets.UTF_8))
 
         // Left align: ESC a 0
         out.write(byteArrayOf(ESC, 0x61, 0))
@@ -393,27 +405,33 @@ object PrinterManager {
             val lineTotal = "${settings.currencySymbol}${String.format(Locale.US, "%.2f", item.unitPrice * item.quantity)}"
             val spaceCount = maxOf(1, 32 - qtyPrice.length - lineTotal.length)
             val line2 = qtyPrice + " ".repeat(spaceCount) + lineTotal + "\n"
-            out.write(line1.toByteArray(Charsets.US_ASCII))
-            out.write(line2.toByteArray(Charsets.US_ASCII))
+            out.write(line1.toByteArray(Charsets.UTF_8))
+            out.write(line2.toByteArray(Charsets.UTF_8))
         }
 
-        out.write("--------------------------------\n".toByteArray(Charsets.US_ASCII))
+        out.write("--------------------------------\n".toByteArray(Charsets.UTF_8))
 
         // Totals (Right align: ESC a 2)
         out.write(byteArrayOf(ESC, 0x61, 2))
         if (settings.taxEnabled) {
-            out.write("Tax: ${settings.currencySymbol}${String.format(Locale.US, "%.2f", sale.taxAmount)}\n".toByteArray(Charsets.US_ASCII))
+            out.write("Tax: ${settings.currencySymbol}${String.format(Locale.US, "%.2f", sale.taxAmount)}\n".toByteArray(Charsets.UTF_8))
         }
         // Bold total: ESC E 1
         out.write(byteArrayOf(ESC, 0x45, 1))
-        out.write("TOTAL: ${settings.currencySymbol}${String.format(Locale.US, "%.2f", sale.totalAmount)}\n".toByteArray(Charsets.US_ASCII))
+        out.write("TOTAL: ${settings.currencySymbol}${String.format(Locale.US, "%.2f", sale.totalAmount)}\n".toByteArray(Charsets.UTF_8))
         out.write(byteArrayOf(ESC, 0x45, 0)) // Bold off
-        out.write("Paid via: ${sale.paymentType}\n".toByteArray(Charsets.US_ASCII))
+        out.write("Paid via: ${sale.paymentType}\n".toByteArray(Charsets.UTF_8))
+        if (sale.cashTendered > 0.0) {
+            out.write("Cash Received: ${settings.currencySymbol}${String.format(Locale.US, "%.2f", sale.cashTendered)}\n".toByteArray(Charsets.UTF_8))
+            out.write(byteArrayOf(ESC, 0x45, 1)) // Bold on
+            out.write("CHANGE DUE: ${settings.currencySymbol}${String.format(Locale.US, "%.2f", sale.changeDue)}\n".toByteArray(Charsets.UTF_8))
+            out.write(byteArrayOf(ESC, 0x45, 0)) // Bold off
+        }
 
         // Center align: ESC a 1
         out.write(byteArrayOf(ESC, 0x61, 1))
-        out.write("--------------------------------\n".toByteArray(Charsets.US_ASCII))
-        out.write("Thank you for your business!\n\n\n".toByteArray(Charsets.US_ASCII))
+        out.write("--------------------------------\n".toByteArray(Charsets.UTF_8))
+        out.write("Thank you for your business!\n\n\n".toByteArray(Charsets.UTF_8))
 
         // Cut paper: GS V 66 0
         out.write(byteArrayOf(GS, 0x56, 66, 0))

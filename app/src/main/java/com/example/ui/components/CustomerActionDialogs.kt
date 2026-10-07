@@ -191,19 +191,33 @@ fun RecordBorrowDialog(
 ) {
     val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("All") }
     var showBarcodeScanner by remember { mutableStateOf(false) }
+
+    val categories = remember(availableProducts) {
+        val list = mutableListOf("General", "Beverages", "Snacks", "Canned Goods", "Toiletries")
+        availableProducts.forEach { p ->
+            if (p.category.isNotBlank() && !list.contains(p.category)) {
+                list.add(p.category)
+            }
+        }
+        list
+    }
 
     val selectedQuantities = remember { mutableStateMapOf<Long, Int>() }
 
-    val filteredProducts = remember(availableProducts, searchQuery) {
-        if (searchQuery.isBlank()) {
-            availableProducts
-        } else {
+    val filteredProducts = remember(availableProducts, searchQuery, selectedCategory) {
+        var list = availableProducts
+        if (selectedCategory != "All" && selectedCategory.isNotBlank()) {
+            list = list.filter { it.category.equals(selectedCategory, ignoreCase = true) }
+        }
+        if (searchQuery.isNotBlank()) {
             val q = searchQuery.trim().lowercase()
-            availableProducts.filter {
+            list = list.filter {
                 it.name.lowercase().contains(q) || it.barcode.lowercase().contains(q)
             }
         }
+        list
     }
 
     val selectedItemsList = remember(selectedQuantities.toMap(), availableProducts) {
@@ -400,7 +414,17 @@ fun RecordBorrowDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Category Filter Row for Utang Item Picker
+                CategoryFilterRow(
+                    categories = categories,
+                    selectedCategory = selectedCategory,
+                    onCategorySelected = { selectedCategory = it },
+                    testTagPrefix = "borrow_category_chip"
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
 
                 // Scrollable Content: Selected Items List + Inventory Catalog
                 Column(

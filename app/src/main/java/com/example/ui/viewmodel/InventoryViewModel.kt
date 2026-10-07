@@ -35,6 +35,7 @@ data class ProductFormState(
     val id: Long = 0L,
     val name: String = "",
     val barcode: String = "",
+    val category: String = "General",
     val imagePath: String? = null,
     val costPrice: String = "",
     val retailPrice: String = "",
@@ -77,12 +78,33 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
     private val _stockFilter = MutableStateFlow(StockFilter.ALL)
     val stockFilter: StateFlow<StockFilter> = _stockFilter.asStateFlow()
 
+    private val _selectedCategoryFilter = MutableStateFlow("All")
+    val selectedCategoryFilter: StateFlow<String> = _selectedCategoryFilter.asStateFlow()
+
+    val availableCategories: StateFlow<List<String>> = repository.allCategories
+        .map { list ->
+            val set = mutableListOf("General", "Beverages", "Snacks", "Canned Goods", "Toiletries")
+            list.forEach { cat ->
+                if (!set.contains(cat.name)) set.add(cat.name)
+            }
+            set
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = listOf("General", "Beverages", "Snacks", "Canned Goods", "Toiletries")
+        )
+
     val products: StateFlow<List<ProductEntity>> = combine(
         repository.allProducts,
         _searchQuery,
-        _stockFilter
-    ) { all, query, filter ->
+        _stockFilter,
+        _selectedCategoryFilter
+    ) { all, query, filter, catFilter ->
         var list = all
+        if (catFilter != "All" && catFilter.isNotBlank()) {
+            list = list.filter { it.category.equals(catFilter, ignoreCase = true) }
+        }
         if (query.isNotBlank()) {
             val q = query.trim().lowercase()
             list = list.filter {
@@ -144,19 +166,34 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
         _toastMessage.value = null
     }
 
+    fun setCategoryFilter(category: String) {
+        _selectedCategoryFilter.value = category
+    }
+
+    fun addNewCategory(categoryName: String) {
+        viewModelScope.launch {
+            repository.insertCategory(categoryName)
+            _toastMessage.value = "Category '$categoryName' added"
+        }
+    }
+
     fun openAddProductDialog(productToEdit: ProductEntity? = null) {
         if (productToEdit != null) {
             _productForm.value = ProductFormState(
                 id = productToEdit.id,
                 name = productToEdit.name,
                 barcode = productToEdit.barcode,
+                category = productToEdit.category,
                 imagePath = productToEdit.imagePath,
                 costPrice = if (productToEdit.costPrice > 0) productToEdit.costPrice.toString() else "",
                 retailPrice = if (productToEdit.retailPrice > 0) productToEdit.retailPrice.toString() else "",
                 stockQuantity = productToEdit.stockQuantity.toString()
             )
         } else {
-            _productForm.value = ProductFormState()
+            val defaultCat = if (_selectedCategoryFilter.value != "All" && _selectedCategoryFilter.value.isNotBlank()) {
+                _selectedCategoryFilter.value
+            } else "General"
+            _productForm.value = ProductFormState(category = defaultCat)
         }
         _isAddProductDialogOpen.value = true
     }
@@ -212,12 +249,17 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
         val cost = form.costPrice.toDoubleOrNull() ?: 0.0
         val retail = form.retailPrice.toDoubleOrNull() ?: 0.0
         val stock = form.stockQuantity.toIntOrNull() ?: 0
+        val cat = form.category.ifBlank { "General" }
 
         viewModelScope.launch {
+            // Also ensure category exists in category repository
+            repository.insertCategory(cat)
+
             val entity = ProductEntity(
                 id = form.id,
                 name = form.name.trim(),
                 barcode = form.barcode.trim(),
+                category = cat.trim(),
                 imagePath = form.imagePath,
                 costPrice = cost,
                 retailPrice = retail,

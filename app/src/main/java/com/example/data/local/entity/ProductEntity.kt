@@ -9,8 +9,9 @@ data class ProductEntity(
     val id: Long = 0,
     val name: String,
     val barcode: String,
+    val category: String = "General",
     val imagePath: String? = null,
-    val costPrice: Double,
-    val retailPrice: Double,
-    val stockQuantity: Int
+    val costPrice: Double = 0.0,
+    val retailPrice: Double = 0.0,
+    val stockQuantity: Int = 0
 )
