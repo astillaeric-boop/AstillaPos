@@ -243,14 +243,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             repository.resetDatabase()
             _showSecondResetConfirm.value = false
-            _toastMessage.value = "Database cleared and re-initialized."
-        }
-    }
-
-    fun seedDemoData() {
-        viewModelScope.launch {
-            repository.seedDemoDataIfEmpty()
-            _toastMessage.value = "Demo inventory and restock data seeded!"
+            _toastMessage.value = "Database cleared. All tables are now blank slate."
         }
     }
 

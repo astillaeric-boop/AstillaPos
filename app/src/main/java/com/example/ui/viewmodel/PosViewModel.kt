@@ -54,16 +54,12 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
 
     val availableCategories: StateFlow<List<String>> = repository.allCategories
         .map { list ->
-            val set = mutableListOf("General", "Beverages", "Snacks", "Canned Goods", "Toiletries")
-            list.forEach { cat ->
-                if (!set.contains(cat.name)) set.add(cat.name)
-            }
-            set
+            list.map { it.name }.distinct()
         }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = listOf("General", "Beverages", "Snacks", "Canned Goods", "Toiletries")
+            initialValue = emptyList()
         )
 
     val settings: StateFlow<AppSettingsEntity> = repository.appSettings
@@ -112,7 +108,8 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch {
-            repository.seedDemoDataIfEmpty()
+            repository.ensureDefaultSettings()
+            repository.cleanupOldReceipts()
         }
     }
 
