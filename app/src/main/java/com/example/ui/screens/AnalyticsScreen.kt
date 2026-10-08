@@ -273,6 +273,33 @@ fun AnalyticsScreen(
             )
         }
 
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            AccountingKpiCard(
+                title = "Current Inventory Value",
+                value = "$currency${String.format(Locale.US, "%.2f", state.totalInventoryValue)}",
+                subtitle = "Total Stock Asset Valuation (Cost)",
+                accentColor = Color(0xFF0D9488),
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("kpi_inventory_value")
+            )
+
+            AccountingKpiCard(
+                title = "Total Supplier Restock",
+                value = "$currency${String.format(Locale.US, "%.2f", state.totalDeliveryCost)}",
+                subtitle = "${state.deliveryCount} Deliveries Logged",
+                accentColor = Color(0xFF6366F1),
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("kpi_supplier_restock")
+            )
+        }
+
         Spacer(modifier = Modifier.height(16.dp))
 
         // Deliveries & Restock Report Card

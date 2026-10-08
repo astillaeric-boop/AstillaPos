@@ -72,6 +72,13 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
             initialValue = AppSettingsEntity()
         )
 
+    val totalInventoryValue: StateFlow<Double> = repository.totalInventoryValue
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = 0.0
+        )
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 

@@ -28,6 +28,7 @@ class PosRepository(private val database: AppDatabase) {
     private val creditTransactionDao = database.creditTransactionDao()
 
     val allProducts: Flow<List<ProductEntity>> = productDao.getAllProducts()
+    val totalInventoryValue: Flow<Double> = productDao.getTotalInventoryValue()
     val allCategories: Flow<List<CategoryEntity>> = categoryDao.getAllCategories()
     val allSales: Flow<List<SaleWithItems>> = saleDao.getAllSalesWithItems()
     val allDeliveries: Flow<List<DeliveryEntity>> = deliveryDao.getAllDeliveries()

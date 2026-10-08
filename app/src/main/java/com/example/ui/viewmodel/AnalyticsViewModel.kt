@@ -55,7 +55,8 @@ data class AnalyticsState(
     val deliveryCount: Int = 0,
     val chartPoints: List<ChartDataPoint> = emptyList(),
     val topSellingItems: List<Pair<String, Int>> = emptyList(),
-    val categorySales: List<CategorySalesSummary> = emptyList()
+    val categorySales: List<CategorySalesSummary> = emptyList(),
+    val totalInventoryValue: Double = 0.0
 )
 
 class AnalyticsViewModel(application: Application) : AndroidViewModel(application) {
@@ -290,6 +291,10 @@ class AnalyticsViewModel(application: Application) : AndroidViewModel(applicatio
             )
         }.sortedByDescending { it.totalRevenue }
 
+        // Total Current Inventory Valuation (Asset Value = SUM(stockQuantity * costPrice) for all stockQuantity > 0)
+        val totalInventoryValue = allProducts.filter { it.stockQuantity > 0 }
+            .sumOf { it.stockQuantity * it.costPrice }
+
         return AnalyticsState(
             period = period,
             totalRevenue = totalRevenue,
@@ -310,7 +315,8 @@ class AnalyticsViewModel(application: Application) : AndroidViewModel(applicatio
             deliveryCount = periodDeliveries.size,
             chartPoints = chartPoints,
             topSellingItems = topSellingItems,
-            categorySales = categorySales
+            categorySales = categorySales,
+            totalInventoryValue = totalInventoryValue
         )
     }
 

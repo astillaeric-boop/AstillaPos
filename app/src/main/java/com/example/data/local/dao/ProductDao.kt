@@ -69,6 +69,9 @@ interface ProductDao {
     """)
     suspend fun getSalesByCategoryDirect(startDate: Long, endDate: Long): List<CategorySalesSummary>
 
+    @Query("SELECT COALESCE(SUM(stockQuantity * costPrice), 0.0) FROM products WHERE stockQuantity > 0")
+    fun getTotalInventoryValue(): Flow<Double>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertProduct(product: ProductEntity): Long
 

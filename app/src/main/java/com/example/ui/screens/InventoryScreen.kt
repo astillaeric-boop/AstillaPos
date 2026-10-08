@@ -110,6 +110,7 @@ fun InventoryScreen(
     val stockFilter by viewModel.stockFilter.collectAsStateWithLifecycle()
     val availableCategories by viewModel.availableCategories.collectAsStateWithLifecycle()
     val selectedCategoryFilter by viewModel.selectedCategoryFilter.collectAsStateWithLifecycle()
+    val totalInventoryValue by viewModel.totalInventoryValue.collectAsStateWithLifecycle()
     val isAddDialogOpen by viewModel.isAddProductDialogOpen.collectAsStateWithLifecycle()
     val productForm by viewModel.productForm.collectAsStateWithLifecycle()
     val isBarcodeScannerOpen by viewModel.isBarcodeScannerOpen.collectAsStateWithLifecycle()
@@ -148,7 +149,7 @@ fun InventoryScreen(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "${products.size} Products • ${deliveriesWithItems.size} Delivery Records",
+                                text = "${products.size} Products • Valuation: ${settings.currencySymbol}${String.format(Locale.US, "%.2f", totalInventoryValue)}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
