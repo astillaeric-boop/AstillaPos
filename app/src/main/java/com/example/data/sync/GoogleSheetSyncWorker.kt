@@ -58,15 +58,32 @@ class GoogleSheetSyncWorker(
         for (saleWithItems in unsyncedSales) {
             val saleObj = JSONObject()
             saleObj.put("id", saleWithItems.sale.id)
+            saleObj.put("transaction_id", "tx-${saleWithItems.sale.id}")
             saleObj.put("timestamp", saleWithItems.sale.timestamp)
             saleObj.put("dateString", dateFormat.format(Date(saleWithItems.sale.timestamp)))
             saleObj.put("totalAmount", saleWithItems.sale.totalAmount)
+            saleObj.put("total_amount", saleWithItems.sale.totalAmount)
             saleObj.put("taxAmount", saleWithItems.sale.taxAmount)
             saleObj.put("paymentType", saleWithItems.sale.paymentType)
             val itemsSummary = saleWithItems.items.joinToString("; ") {
                 "${it.quantity}x ${it.productName} (@${it.unitPrice})"
             }
             saleObj.put("itemsSummary", itemsSummary)
+
+            val itemsArr = JSONArray()
+            for (item in saleWithItems.items) {
+                val itObj = JSONObject()
+                itObj.put("productId", item.productId)
+                itObj.put("productName", item.productName)
+                itObj.put("quantity", item.quantity)
+                itObj.put("unitPrice", item.unitPrice)
+                itObj.put("unitCost", item.unitCost)
+                // Match product barcode if available
+                val matchedProd = allProducts.find { it.id == item.productId }
+                itObj.put("barcode", matchedProd?.barcode ?: "")
+                itemsArr.put(itObj)
+            }
+            saleObj.put("items", itemsArr)
             salesJson.put(saleObj)
         }
 
