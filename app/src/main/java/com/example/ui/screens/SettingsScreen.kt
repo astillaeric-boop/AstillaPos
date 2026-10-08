@@ -74,6 +74,7 @@ import com.example.ui.viewmodel.SettingsViewModel
 import com.example.ui.components.SupportMeDialog
 
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Info
 
 @Composable
@@ -89,6 +90,7 @@ fun SettingsScreen(
     val showResetDialog by viewModel.showResetDialog.collectAsStateWithLifecycle()
     val showSecondResetConfirm by viewModel.showSecondResetConfirm.collectAsStateWithLifecycle()
     val showSupportDialog by viewModel.showSupportDialog.collectAsStateWithLifecycle()
+    val unsyncedProductsCount by viewModel.unsyncedProductsCount.collectAsStateWithLifecycle()
 
     var storeNameInput by remember(settings.storeName) { mutableStateOf(settings.storeName) }
     var businessAddressInput by remember(settings.businessAddress) { mutableStateOf(settings.businessAddress) }
@@ -478,6 +480,28 @@ fun SettingsScreen(
             }
 
             Spacer(modifier = Modifier.height(8.dp))
+            if (unsyncedProductsCount > 0) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFFEF3C7),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.CloudSync, contentDescription = null, tint = Color(0xFFB45309), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "$unsyncedProductsCount product(s) pending sync to Google Sheets. Tap 'Sync Now' to upload.",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF92400E)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+            }
             Surface(
                 shape = RoundedCornerShape(8.dp),
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),

@@ -12,6 +12,7 @@ import com.example.data.local.entity.DeliveryItemEntity
 import com.example.data.local.entity.DeliveryWithItems
 import com.example.data.local.entity.ProductEntity
 import com.example.data.repository.PosRepository
+import com.example.data.sync.GoogleSheetSyncWorker
 import com.example.util.ImageStorageHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -138,6 +139,26 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+    val unsyncedProductCount: StateFlow<Int> = repository.getUnsyncedProductCount()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = 0
+        )
+
+    private val _isSyncing = MutableStateFlow(false)
+    val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
+
+    fun syncNow() {
+        _isSyncing.value = true
+        GoogleSheetSyncWorker.triggerImmediateSync(getApplication())
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(1200)
+            _isSyncing.value = false
+            _toastMessage.value = "Sync job dispatched"
+        }
+    }
 
     private val _isAddProductDialogOpen = MutableStateFlow(false)
     val isAddProductDialogOpen: StateFlow<Boolean> = _isAddProductDialogOpen.asStateFlow()
@@ -266,11 +287,19 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
                 imagePath = form.imagePath,
                 costPrice = cost,
                 retailPrice = retail,
-                stockQuantity = stock
+                stockQuantity = stock,
+                isSynced = false,
+                updatedAt = System.currentTimeMillis()
             )
             repository.insertOrUpdateProduct(entity)
             closeAddProductDialog()
             _toastMessage.value = if (form.id == 0L) "Product added" else "Product updated"
+
+            // Auto-trigger sync if cloud link is configured
+            val settings = repository.getSettingsDirect()
+            if (settings.googleSheetLink.isNotBlank() && settings.googleSheetLink.startsWith("http")) {
+                GoogleSheetSyncWorker.triggerImmediateSync(getApplication())
+            }
         }
     }
 

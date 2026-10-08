@@ -13,5 +13,7 @@ data class ProductEntity(
     val imagePath: String? = null,
     val costPrice: Double = 0.0,
     val retailPrice: Double = 0.0,
-    val stockQuantity: Int = 0
+    val stockQuantity: Int = 0,
+    val isSynced: Boolean = false,
+    val updatedAt: Long = System.currentTimeMillis()
 )

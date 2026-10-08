@@ -38,11 +38,15 @@ import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -118,6 +122,8 @@ fun InventoryScreen(
     val isDeliveryDialogOpen by viewModel.isDeliveryDialogOpen.collectAsStateWithLifecycle()
     val deliveryForm by viewModel.deliveryForm.collectAsStateWithLifecycle()
     val toastMessage by viewModel.toastMessage.collectAsStateWithLifecycle()
+    val unsyncedCount by viewModel.unsyncedProductCount.collectAsStateWithLifecycle()
+    val isSyncing by viewModel.isSyncing.collectAsStateWithLifecycle()
 
     var selectedTabIndex by remember { mutableIntStateOf(0) }
 
@@ -149,11 +155,51 @@ fun InventoryScreen(
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold
                             )
-                            Text(
-                                text = "${products.size} Products • Valuation: ${settings.currencySymbol}${String.format(Locale.US, "%.2f", totalInventoryValue)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "${products.size} Products • Valuation: ${settings.currencySymbol}${String.format(Locale.US, "%.2f", totalInventoryValue)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (unsyncedCount > 0) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = Color(0xFFFEF3C7)
+                                    ) {
+                                        Text(
+                                            text = "$unsyncedCount pending sync",
+                                            color = Color(0xFFB45309),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (settings.googleSheetLink.isNotBlank() && settings.googleSheetLink.startsWith("http")) {
+                            IconButton(
+                                onClick = { viewModel.syncNow() },
+                                enabled = !isSyncing,
+                                modifier = Modifier.size(36.dp).testTag("inventory_sync_now_btn")
+                            ) {
+                                if (isSyncing) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = if (unsyncedCount > 0) Icons.Default.CloudSync else Icons.Default.Sync,
+                                        contentDescription = "Sync Now",
+                                        tint = if (unsyncedCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
                         }
 
                         FilledTonalButton(
@@ -452,6 +498,28 @@ fun ProductInventoryCard(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+
+                    if (product.isSynced) {
+                        Icon(
+                            imageVector = Icons.Default.CloudDone,
+                            contentDescription = "Synced to Google Sheet",
+                            tint = Color(0xFF16A34A),
+                            modifier = Modifier.size(14.dp)
+                        )
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(3.dp),
+                            color = Color(0xFFFEF3C7)
+                        ) {
+                            Text(
+                                text = "Pending Sync",
+                                color = Color(0xFFB45309),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
                     }
                 }
 

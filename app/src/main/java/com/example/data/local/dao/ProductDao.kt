@@ -69,6 +69,18 @@ interface ProductDao {
     """)
     suspend fun getSalesByCategoryDirect(startDate: Long, endDate: Long): List<CategorySalesSummary>
 
+    @Query("SELECT * FROM products WHERE isSynced = 0 ORDER BY updatedAt ASC")
+    suspend fun getUnsyncedProducts(): List<ProductEntity>
+
+    @Query("SELECT COUNT(*) FROM products WHERE isSynced = 0")
+    fun getUnsyncedProductCount(): Flow<Int>
+
+    @Query("UPDATE products SET isSynced = 1 WHERE id IN (:productIds)")
+    suspend fun markProductsAsSynced(productIds: List<Long>)
+
+    @Query("UPDATE products SET isSynced = 1 WHERE id = :productId")
+    suspend fun markProductAsSynced(productId: Long)
+
     @Query("SELECT COALESCE(SUM(stockQuantity * costPrice), 0.0) FROM products WHERE stockQuantity > 0")
     fun getTotalInventoryValue(): Flow<Double>
 

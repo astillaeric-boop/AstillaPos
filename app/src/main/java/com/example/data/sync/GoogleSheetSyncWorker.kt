@@ -45,9 +45,10 @@ class GoogleSheetSyncWorker(
 
         val unsyncedSales = repository.getUnsyncedSales()
         val unsyncedDeliveries = repository.getUnsyncedDeliveries()
+        val unsyncedProducts = repository.getUnsyncedProducts()
         val allProducts = repository.allProducts.firstOrNull() ?: emptyList()
 
-        if (unsyncedSales.isEmpty() && unsyncedDeliveries.isEmpty()) {
+        if (unsyncedSales.isEmpty() && unsyncedDeliveries.isEmpty() && unsyncedProducts.isEmpty()) {
             Log.d("SyncWorker", "No unsynced records found.")
             return@withContext Result.success()
         }
@@ -149,6 +150,10 @@ class GoogleSheetSyncWorker(
                 val deliveryIds = unsyncedDeliveries.map { it.id }
                 if (deliveryIds.isNotEmpty()) {
                     repository.markDeliveriesAsSynced(deliveryIds)
+                }
+                val productIds = unsyncedProducts.map { it.id }
+                if (productIds.isNotEmpty()) {
+                    repository.markProductsAsSynced(productIds)
                 }
 
                 Result.success()

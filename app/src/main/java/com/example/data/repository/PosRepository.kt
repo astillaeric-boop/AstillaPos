@@ -136,18 +136,31 @@ class PosRepository(private val database: AppDatabase) {
                             name = item.name.ifBlank { existingByBarcode.name },
                             costPrice = if (item.costPrice > 0) item.costPrice else existingByBarcode.costPrice,
                             retailPrice = if (item.retailPrice > 0) item.retailPrice else existingByBarcode.retailPrice,
-                            stockQuantity = item.stockQuantity
+                            stockQuantity = item.stockQuantity,
+                            isSynced = true,
+                            updatedAt = System.currentTimeMillis()
                         )
                     )
                     count++
                 } else {
-                    productDao.insertProduct(item)
+                    productDao.insertProduct(
+                        item.copy(
+                            isSynced = true,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
                     count++
                 }
             }
             count
         }
     }
+
+    suspend fun getUnsyncedProducts(): List<ProductEntity> = productDao.getUnsyncedProducts()
+
+    fun getUnsyncedProductCount(): Flow<Int> = productDao.getUnsyncedProductCount()
+
+    suspend fun markProductsAsSynced(ids: List<Long>) = productDao.markProductsAsSynced(ids)
 
     suspend fun getSettingsDirect(): AppSettingsEntity {
         return appSettingsDao.getSettingsDirect() ?: AppSettingsEntity()
