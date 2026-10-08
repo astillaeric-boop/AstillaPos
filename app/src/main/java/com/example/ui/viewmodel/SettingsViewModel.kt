@@ -172,9 +172,24 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 val request = Request.Builder().url(pullUrl).get().build()
                 val response = client.newCall(request).execute()
                 if (response.isSuccessful) {
-                    val jsonStr = response.body?.string().orEmpty()
-                    val root = JSONObject(jsonStr)
-                    val productsArray = root.optJSONArray("products")
+                    val rawBody = response.body?.string().orEmpty().trim()
+                    if (rawBody.startsWith("<") || rawBody.startsWith("<!DOCTYPE", ignoreCase = true)) {
+                        withContext(Dispatchers.Main) {
+                            _isSyncing.value = false
+                            _toastMessage.value = "Google Apps Script returned HTML error. Check Web App deployment permissions (Who has access: Anyone)."
+                        }
+                        return@launch
+                    }
+                    val root = JSONObject(rawBody)
+                    if (root.optString("status") == "error") {
+                        val errMsg = root.optString("message", "Unknown error from Google Apps Script")
+                        withContext(Dispatchers.Main) {
+                            _isSyncing.value = false
+                            _toastMessage.value = "Apps Script Error: $errMsg"
+                        }
+                        return@launch
+                    }
+                    val productsArray = root.optJSONArray("products") ?: root.optJSONArray("updated_catalog")
                     if (productsArray != null) {
                         val productList = mutableListOf<ProductEntity>()
                         for (i in 0 until productsArray.length()) {
@@ -182,8 +197,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                             productList.add(
                                 ProductEntity(
                                     id = item.optLong("id", 0L),
-                                    name = item.optString("name", "Product"),
+                                    name = item.optString("productName", item.optString("name", "Product")),
                                     barcode = item.optString("barcode", ""),
+                                    category = item.optString("category", "General"),
                                     costPrice = item.optDouble("costPrice", 0.0),
                                     retailPrice = item.optDouble("retailPrice", 0.0),
                                     stockQuantity = item.optInt("stockQuantity", 0)

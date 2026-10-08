@@ -26,19 +26,31 @@ object GoogleAppsScriptTemplate {
 
 function doPost(e) {
   var lock = LockService.getScriptLock();
-  // Wait up to 30 seconds for concurrent sync calls to finish
-  var hasLock = lock.tryLock(30000);
-  if (!hasLock) {
-    return ContentService.createTextOutput(JSON.stringify({
-      status: "error",
-      message: "Server busy, could not acquire sync lock. Please retry."
-    })).setMimeType(ContentService.MimeType.JSON);
-  }
-
+  var hasLock = false;
   try {
+    hasLock = lock.tryLock(30000);
+    if (!hasLock) {
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "error",
+        message: "Server busy, could not acquire sync lock. Please retry."
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     var rawData = (e && e.postData && e.postData.contents) ? e.postData.contents : "{}";
-    var body = JSON.parse(rawData);
+    var body = {};
+    try {
+      body = JSON.parse(rawData);
+    } catch (parseErr) {
+      body = {};
+    }
+
     var ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) {
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "error",
+        message: "No active spreadsheet linked to this script. Ensure the script is bound to a Google Sheet."
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
 
     // 1. Direct pull request handling
     if (body.action === "pull") {
@@ -195,34 +207,51 @@ function doPost(e) {
       stack: err.stack
     })).setMimeType(ContentService.MimeType.JSON);
   } finally {
-    lock.releaseLock();
+    if (hasLock) {
+      try {
+        lock.releaseLock();
+      } catch (_) {}
+    }
   }
 }
 
 function doGet(e) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var params = (e && e.parameter) ? e.parameter : {};
-  var action = params.action || "";
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) {
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "error",
+        message: "No active spreadsheet linked to this script. Ensure the script is bound to a Google Sheet."
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    var params = (e && e.parameter) ? e.parameter : {};
+    var action = params.action || "";
 
-  if (action === "pull" || action === "inventory" || action === "catalog") {
-    var lastSyncedAt = params.last_synced_at || params.lastSyncedAt || null;
-    var invSheet = getOrCreateInventorySheet(ss);
-    var catalog = getDeltaCatalog(invSheet, lastSyncedAt);
+    if (action === "pull" || action === "inventory" || action === "catalog") {
+      var lastSyncedAt = params.last_synced_at || params.lastSyncedAt || null;
+      var invSheet = getOrCreateInventorySheet(ss);
+      var catalog = getDeltaCatalog(invSheet, lastSyncedAt);
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success",
+        synced_at: new Date().toISOString(),
+        products: catalog,
+        updated_catalog: catalog,
+        totalProducts: catalog.length
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     return ContentService.createTextOutput(JSON.stringify({
-      status: "success",
-      synced_at: new Date().toISOString(),
-      products: catalog,
-      updated_catalog: catalog,
-      totalProducts: catalog.length
+      status: "online",
+      service: "Astilla POS Google Sheets Sync Engine",
+      version: "2.0-atomic-idempotent",
+      timestamp: new Date().toISOString()
+    })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({
+      status: "error",
+      message: err.toString()
     })).setMimeType(ContentService.MimeType.JSON);
   }
-
-  return ContentService.createTextOutput(JSON.stringify({
-    status: "online",
-    service: "Astilla POS Google Sheets Sync Engine",
-    version: "2.0-atomic-idempotent",
-    timestamp: new Date().toISOString()
-  })).setMimeType(ContentService.MimeType.JSON);
 }
 
 // -------------------------------------------------------------
