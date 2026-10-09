@@ -18,7 +18,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -135,17 +137,28 @@ fun InventoryScreen(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Header Tabs: Products vs Delivery Logs
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+        ) {
+            // Header Tabs: Products vs Delivery Logs (Fixed/Intrinsic Height)
             Surface(
                 color = MaterialTheme.colorScheme.surface,
                 tonalElevation = 2.dp,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .wrapContentHeight()
             ) {
-                Column {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .wrapContentHeight()
+                ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .wrapContentHeight()
                             .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -221,7 +234,10 @@ fun InventoryScreen(
 
                     SecondaryTabRow(
                         selectedTabIndex = selectedTabIndex,
-                        containerColor = MaterialTheme.colorScheme.surface
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .wrapContentHeight()
                     ) {
                         Tab(
                             selected = selectedTabIndex == 0,
@@ -237,120 +253,140 @@ fun InventoryScreen(
                 }
             }
 
-            if (selectedTabIndex == 0) {
-                // Product Catalog View
-                Column(modifier = Modifier.fillMaxSize()) {
-                    // Search and Filter row
-                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { viewModel.onSearchQueryChanged(it) },
-                            placeholder = { Text("Search catalog by name or SKU...") },
-                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Category Filter Row
-                        CategoryFilterRow(
-                            categories = availableCategories,
-                            selectedCategory = selectedCategoryFilter,
-                            onCategorySelected = { viewModel.setCategoryFilter(it) },
-                            testTagPrefix = "inventory_category_chip"
-                        )
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(
-                                selected = stockFilter == StockFilter.ALL,
-                                onClick = { viewModel.setStockFilter(StockFilter.ALL) },
-                                label = { Text("All (${products.size})") }
+            // Scrollable Content Body (Holds weight(1f) to absorb remaining screen space)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                if (selectedTabIndex == 0) {
+                    // Product Catalog View
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        // Search and Filter row (Compact, fixed/intrinsic height)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .wrapContentHeight()
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { viewModel.onSearchQueryChanged(it) },
+                                placeholder = { Text("Search catalog by name or SKU...") },
+                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
                             )
-                            FilterChip(
-                                selected = stockFilter == StockFilter.LOW_STOCK,
-                                onClick = { viewModel.setStockFilter(StockFilter.LOW_STOCK) },
-                                label = { Text("Low Stock") }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Category Filter Row
+                            CategoryFilterRow(
+                                categories = availableCategories,
+                                selectedCategory = selectedCategoryFilter,
+                                onCategorySelected = { viewModel.setCategoryFilter(it) },
+                                testTagPrefix = "inventory_category_chip"
                             )
-                            FilterChip(
-                                selected = stockFilter == StockFilter.OUT_OF_STOCK,
-                                onClick = { viewModel.setStockFilter(StockFilter.OUT_OF_STOCK) },
-                                label = { Text("Out of Stock") }
-                            )
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(
+                                    selected = stockFilter == StockFilter.ALL,
+                                    onClick = { viewModel.setStockFilter(StockFilter.ALL) },
+                                    label = { Text("All (${products.size})") }
+                                )
+                                FilterChip(
+                                    selected = stockFilter == StockFilter.LOW_STOCK,
+                                    onClick = { viewModel.setStockFilter(StockFilter.LOW_STOCK) },
+                                    label = { Text("Low Stock") }
+                                )
+                                FilterChip(
+                                    selected = stockFilter == StockFilter.OUT_OF_STOCK,
+                                    onClick = { viewModel.setStockFilter(StockFilter.OUT_OF_STOCK) },
+                                    label = { Text("Out of Stock") }
+                                )
+                            }
                         }
-                    }
 
-                    // Product List
-                    if (products.isEmpty()) {
+                        // Product List or Empty State (Occupies remaining height in weight 1f)
                         Box(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .padding(32.dp),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .weight(1f)
                         ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Inventory2,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(64.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Text(
-                                    text = if (searchQuery.isNotEmpty()) "No matching products found" else "No items found in catalog",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = if (searchQuery.isNotEmpty()) "Try adjusting your search query or stock filter." else "Your inventory is currently empty. Add your first product to start tracking stock and processing sales.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                                )
-                                Spacer(modifier = Modifier.height(18.dp))
-                                Button(
-                                    onClick = { viewModel.openAddProductDialog() },
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.testTag("add_first_product_button")
+                            if (products.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(32.dp),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Add Your First Product")
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Inventory2,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(64.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                        )
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text(
+                                            text = if (searchQuery.isNotEmpty()) "No matching products found" else "No items found in catalog",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = if (searchQuery.isNotEmpty()) "Try adjusting your search query or stock filter." else "Your inventory is currently empty. Add your first product to start tracking stock and processing sales.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                        )
+                                        Spacer(modifier = Modifier.height(18.dp))
+                                        Button(
+                                            onClick = { viewModel.openAddProductDialog() },
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.testTag("add_first_product_button")
+                                        ) {
+                                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Add Your First Product")
+                                        }
+                                    }
+                                }
+                            } else {
+                                LazyColumn(
+                                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 100.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    items(products, key = { it.id }) { product ->
+                                        ProductInventoryCard(
+                                            product = product,
+                                            currency = settings.currencySymbol,
+                                            onEdit = { viewModel.openAddProductDialog(product) },
+                                            onDelete = { viewModel.deleteProduct(product) }
+                                        )
+                                    }
                                 }
                             }
                         }
-                    } else {
-                        LazyColumn(
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 100.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            items(products, key = { it.id }) { product ->
-                                ProductInventoryCard(
-                                    product = product,
-                                    currency = settings.currencySymbol,
-                                    onEdit = { viewModel.openAddProductDialog(product) },
-                                    onDelete = { viewModel.deleteProduct(product) }
-                                )
-                            }
-                        }
+                    }
+                } else {
+                    // Delivery Log View
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        DeliveryLogView(
+                            deliveriesWithItems = deliveriesWithItems,
+                            currency = settings.currencySymbol,
+                            onAddDelivery = { viewModel.openDeliveryDialog() }
+                        )
                     }
                 }
-            } else {
-                // Delivery Log View
-                DeliveryLogView(
-                    deliveriesWithItems = deliveriesWithItems,
-                    currency = settings.currencySymbol,
-                    onAddDelivery = { viewModel.openDeliveryDialog() }
-                )
             }
         }
 

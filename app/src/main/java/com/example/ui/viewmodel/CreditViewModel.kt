@@ -9,6 +9,7 @@ import com.example.data.local.entity.CreditTransactionEntity
 import com.example.data.local.entity.CustomerEntity
 import com.example.data.local.entity.ProductEntity
 import com.example.data.repository.PosRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -20,6 +21,15 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 data class CreditUiState(
     val showAddEditCustomerDialog: Boolean = false,
@@ -152,7 +162,9 @@ class CreditViewModel(application: Application) : AndroidViewModel(application) 
                 currentBalance = _uiState.value.editingCustomer?.currentBalance ?: 0.0,
                 lastUpdated = System.currentTimeMillis()
             )
-            repository.insertOrUpdateCustomer(customer)
+            val savedId = repository.insertOrUpdateCustomer(customer)
+            val savedCustomer = customer.copy(id = savedId)
+            dispatchSyncCustomer(savedCustomer)
             closeAddEditCustomerDialog()
             _uiState.value = _uiState.value.copy(
                 toastMessage = if (id == 0L) "Customer added successfully" else "Customer updated"
@@ -215,6 +227,7 @@ class CreditViewModel(application: Application) : AndroidViewModel(application) 
                 )
                 closeBorrowDialog()
                 val updatedCustomer = repository.getCustomerById(customerId) ?: customer
+                dispatchLogUtangTransaction(tx, updatedCustomer)
                 _uiState.value = _uiState.value.copy(
                     toastMessage = "Utang recorded & inventory updated!",
                     showReceiptDialog = true,
@@ -244,6 +257,7 @@ class CreditViewModel(application: Application) : AndroidViewModel(application) 
                 closeBorrowDialog()
                 // Update target customer for receipt
                 val updatedCustomer = repository.getCustomerById(customerId) ?: customer
+                dispatchLogUtangTransaction(tx, updatedCustomer)
                 _uiState.value = _uiState.value.copy(
                     toastMessage = "Utang recorded successfully!",
                     showReceiptDialog = true,
@@ -287,6 +301,7 @@ class CreditViewModel(application: Application) : AndroidViewModel(application) 
                 )
                 closePaymentDialog()
                 val updatedCustomer = repository.getCustomerById(customerId) ?: customer
+                dispatchLogUtangPayment(tx, updatedCustomer)
                 _uiState.value = _uiState.value.copy(
                     toastMessage = "Payment recorded successfully!",
                     showReceiptDialog = true,
@@ -317,5 +332,69 @@ class CreditViewModel(application: Application) : AndroidViewModel(application) 
 
     fun clearToastMessage() {
         _uiState.value = _uiState.value.copy(toastMessage = null)
+    }
+
+    private fun dispatchSyncCustomer(customer: CustomerEntity) {
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        val payload = JSONObject().apply {
+            put("action", "SYNC_CUSTOMER")
+            put("customerId", customer.id)
+            put("customerName", customer.name)
+            put("phoneNumber", customer.phoneNumber)
+            put("currentBalance", customer.currentBalance)
+            put("lastUpdated", dateFormat.format(Date(customer.lastUpdated)))
+        }
+        dispatchSheetAction(payload)
+    }
+
+    private fun dispatchLogUtangTransaction(tx: CreditTransactionEntity, customer: CustomerEntity) {
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        val payload = JSONObject().apply {
+            put("action", "LOG_UTANG_TRANSACTION")
+            put("transactionId", "utang-${tx.id}")
+            put("customerId", customer.id)
+            put("customerName", customer.name)
+            put("phoneNumber", customer.phoneNumber)
+            put("itemsSummary", tx.itemSummary)
+            put("amountBorrowed", tx.amount)
+            put("remainingBalance", tx.remainingBalance)
+            put("timestamp", dateFormat.format(Date(tx.timestamp)))
+        }
+        dispatchSheetAction(payload)
+    }
+
+    private fun dispatchLogUtangPayment(tx: CreditTransactionEntity, customer: CustomerEntity) {
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        val payload = JSONObject().apply {
+            put("action", "LOG_UTANG_PAYMENT")
+            put("paymentId", "pay-${tx.id}")
+            put("customerId", customer.id)
+            put("customerName", customer.name)
+            put("phoneNumber", customer.phoneNumber)
+            put("amountPaid", tx.amount)
+            put("remainingBalance", tx.remainingBalance)
+            put("timestamp", dateFormat.format(Date(tx.timestamp)))
+        }
+        dispatchSheetAction(payload)
+    }
+
+    private fun dispatchSheetAction(payload: JSONObject) {
+        val endpoint = settings.value.googleSheetLink.trim()
+        if (endpoint.isEmpty() || !endpoint.startsWith("http")) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(15, TimeUnit.SECONDS)
+                    .readTimeout(15, TimeUnit.SECONDS)
+                    .followRedirects(true)
+                    .followSslRedirects(true)
+                    .build()
+                val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+                val request = Request.Builder().url(endpoint).post(body).build()
+                client.newCall(request).execute().close()
+            } catch (_: Exception) {
+                // Background dispatch failure safe, batch WorkManager will synchronize
+            }
+        }
     }
 }

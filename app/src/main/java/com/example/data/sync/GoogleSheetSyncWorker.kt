@@ -47,6 +47,7 @@ class GoogleSheetSyncWorker(
         val unsyncedDeliveries = repository.getUnsyncedDeliveries()
         val unsyncedProducts = repository.getUnsyncedProducts()
         val allProducts = repository.allProducts.firstOrNull() ?: emptyList()
+        val allCustomers = repository.allCustomers.firstOrNull() ?: emptyList()
 
         if (unsyncedSales.isEmpty() && unsyncedDeliveries.isEmpty() && unsyncedProducts.isEmpty()) {
             Log.d("SyncWorker", "No unsynced records found.")
@@ -115,6 +116,17 @@ class GoogleSheetSyncWorker(
             inventoryJson.put(pObj)
         }
 
+        val customersJson = JSONArray()
+        for (customer in allCustomers) {
+            val cObj = JSONObject()
+            cObj.put("customerId", customer.id)
+            cObj.put("customerName", customer.name)
+            cObj.put("phoneNumber", customer.phoneNumber)
+            cObj.put("currentBalance", customer.currentBalance)
+            cObj.put("lastUpdated", if (customer.lastUpdated > 0) dateFormat.format(Date(customer.lastUpdated)) else dateFormat.format(Date()))
+            customersJson.put(cObj)
+        }
+
         val rootPayload = JSONObject()
         rootPayload.put("action", "sync_pos_data")
         rootPayload.put("storeName", settings.storeName)
@@ -122,6 +134,7 @@ class GoogleSheetSyncWorker(
         rootPayload.put("sales", salesJson)
         rootPayload.put("deliveries", deliveriesJson)
         rootPayload.put("inventory", inventoryJson)
+        rootPayload.put("customers", customersJson)
 
         val client = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)

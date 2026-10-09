@@ -11,6 +11,7 @@ import com.example.data.local.entity.SaleEntity
 import com.example.data.local.entity.SaleItemEntity
 import com.example.data.local.entity.SaleWithItems
 import com.example.data.repository.PosRepository
+import com.example.data.sync.GoogleSheetSyncWorker
 import com.example.util.SoundManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -344,6 +345,9 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                     // Log or handle
                 }
             }
+
+            // Immediately trigger background sync to Google Sheets
+            GoogleSheetSyncWorker.triggerImmediateSync(getApplication())
 
             soundManager.playSuccessCheckout(settings.value.soundEnabled)
 

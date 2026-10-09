@@ -13,7 +13,7 @@ object GoogleAppsScriptTemplate {
  * 3. Concurrency Protection: LockService.getScriptLock() prevents race conditions.
  * 4. Delta Catalog Sync: Fetches items modified/updated after last_synced_at.
  * 5. Multi-format support: Supports both POST transaction sync (/api/v1/sync/transactions format)
- *    and POS batch sync actions.
+ *    and legacy POS sync actions.
  * 
  * SETUP INSTRUCTIONS:
  * 1. In your Google Sheet, open Extensions > Apps Script.
@@ -58,7 +58,7 @@ function doPost(e) {
     }
 
     // 2. Direct single INVENTORY append/update event
-    if (body.type === "INVENTORY") {
+    if (body.type === "INVENTORY" || body.action === "SYNC_INVENTORY") {
       var invSheetSingle = getOrCreateInventorySheet(ss);
       upsertProductRow(invSheetSingle, {
         barcode: body.barcode || "",
@@ -76,7 +76,20 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // 3. Transactions sync endpoint (Standard /api/v1/sync/transactions spec & ASTILLA POS batch sync)
+    // 3. Utang (Credit Ledger) Actions
+    if (body.action === "SYNC_CUSTOMER" || body.type === "SYNC_CUSTOMER") {
+      return handleSyncCustomer(ss, body);
+    }
+
+    if (body.action === "LOG_UTANG_TRANSACTION" || body.type === "LOG_UTANG_TRANSACTION") {
+      return handleLogUtangTransaction(ss, body);
+    }
+
+    if (body.action === "LOG_UTANG_PAYMENT" || body.type === "LOG_UTANG_PAYMENT") {
+      return handleLogUtangPayment(ss, body);
+    }
+
+    // 4. Transactions sync endpoint (Standard /api/v1/sync/transactions spec & ASTILLA POS batch sync)
     var deviceId = body.device_id || body.deviceId || "pos-device";
     var lastSyncedAt = body.last_synced_at || body.lastSyncedAt || null;
     var rawTransactions = body.transactions || body.sales || [];
@@ -179,6 +192,79 @@ function doPost(e) {
       syncInventorySnapshot(inventorySheet, body.inventory);
     }
 
+    // Process Customers Master Summary if provided
+    if (body.customers && body.customers.length > 0) {
+      var customerSheet = getOrCreateSheet(ss, "Customers", [
+        "Customer ID", "Customer Name", "Phone Number", "Current Balance", "Last Updated"
+      ]);
+      for (var cIdx = 0; cIdx < body.customers.length; cIdx++) {
+        upsertCustomerRow(customerSheet, body.customers[cIdx]);
+      }
+    }
+
+    // Process Utang Transactions (Borrowing History) if provided
+    var rawUtangTxs = body.utangTransactions || body.utang_transactions || [];
+    if (rawUtangTxs.length > 0) {
+      var utangSheet = getOrCreateSheet(ss, "Utang_Transactions", [
+        "Transaction ID", "Customer ID", "Customer Name", "Items Summary", "Amount Borrowed", "Timestamp"
+      ]);
+      var custSheetUtang = getOrCreateSheet(ss, "Customers", [
+        "Customer ID", "Customer Name", "Phone Number", "Current Balance", "Last Updated"
+      ]);
+      for (var uIdx = 0; uIdx < rawUtangTxs.length; uIdx++) {
+        var uTx = rawUtangTxs[uIdx];
+        utangSheet.appendRow([
+          uTx.transactionId || uTx.id || Utilities.getUuid(),
+          uTx.customerId || "",
+          uTx.customerName || "",
+          uTx.itemsSummary || uTx.itemSummary || "",
+          Number(uTx.amountBorrowed || uTx.amount) || 0.0,
+          uTx.timestamp || currentServerTime
+        ]);
+        if (uTx.customerId && uTx.remainingBalance !== undefined && uTx.remainingBalance !== null) {
+          upsertCustomerRow(custSheetUtang, {
+            customerId: uTx.customerId,
+            customerName: uTx.customerName || "",
+            phoneNumber: uTx.phoneNumber || "",
+            currentBalance: Number(uTx.remainingBalance),
+            lastUpdated: uTx.timestamp || currentServerTime
+          });
+        }
+      }
+    }
+
+    // Process Payment Logs (Repayment History) if provided
+    var rawPaymentLogs = body.utangPayments || body.utang_payments || [];
+    if (rawPaymentLogs.length > 0) {
+      var paymentSheet = getOrCreateSheet(ss, "Payment_Logs", [
+        "Payment ID", "Customer ID", "Customer Name", "Amount Paid", "Remaining Balance", "Timestamp"
+      ]);
+      var custSheetPay = getOrCreateSheet(ss, "Customers", [
+        "Customer ID", "Customer Name", "Phone Number", "Current Balance", "Last Updated"
+      ]);
+      for (var pIdx = 0; pIdx < rawPaymentLogs.length; pIdx++) {
+        var pLog = rawPaymentLogs[pIdx];
+        var remBal = Number(pLog.remainingBalance) || 0.0;
+        paymentSheet.appendRow([
+          pLog.paymentId || pLog.id || Utilities.getUuid(),
+          pLog.customerId || "",
+          pLog.customerName || "",
+          Number(pLog.amountPaid || pLog.amount) || 0.0,
+          remBal,
+          pLog.timestamp || currentServerTime
+        ]);
+        if (pLog.customerId) {
+          upsertCustomerRow(custSheetPay, {
+            customerId: pLog.customerId,
+            customerName: pLog.customerName || "",
+            phoneNumber: pLog.phoneNumber || "",
+            currentBalance: remBal,
+            lastUpdated: pLog.timestamp || currentServerTime
+          });
+        }
+      }
+    }
+
     // 5. Delta Catalog Fetch: Query items updated or modified after last_synced_at
     var updatedCatalog = getDeltaCatalog(inventorySheet, lastSyncedAt);
 
@@ -279,6 +365,7 @@ function getExistingProcessedTransactionIds(processedSheet) {
 function getOrCreateInventorySheet(ss) {
   var sheet = ss.getSheetByName("Inventory");
   if (!sheet) {
+    // If POS_Inventory exists from earlier versions, reuse or create Inventory
     var oldSheet = ss.getSheetByName("POS_Inventory");
     if (oldSheet) {
       sheet = oldSheet;
@@ -526,5 +613,173 @@ function getOrCreateSheet(ss, sheetName, headers) {
   }
   return sheet;
 }
+
+// -------------------------------------------------------------
+// UTANG (CUSTOMER CREDIT LEDGER) SYNC HANDLERS & HELPERS
+// -------------------------------------------------------------
+
+/**
+ * Handle SYNC_CUSTOMER action
+ * Locates row in Customers sheet by customerId (Column A).
+ * Upserts row: [customerId, customerName, phoneNumber, currentBalance, lastUpdated]
+ */
+function handleSyncCustomer(ss, body) {
+  var customerSheet = getOrCreateSheet(ss, "Customers", [
+    "Customer ID", "Customer Name", "Phone Number", "Current Balance", "Last Updated"
+  ]);
+  upsertCustomerRow(customerSheet, body);
+  return ContentService.createTextOutput(JSON.stringify({
+    status: "success",
+    message: "Customer synced successfully"
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * Handle LOG_UTANG_TRANSACTION action
+ * Appends new row to Utang_Transactions sheet:
+ * [transactionId, customerId, customerName, itemsSummary, amountBorrowed, timestamp]
+ * Automatically updates/upserts the customer's total balance in the Customers sheet.
+ */
+function handleLogUtangTransaction(ss, body) {
+  var utangSheet = getOrCreateSheet(ss, "Utang_Transactions", [
+    "Transaction ID", "Customer ID", "Customer Name", "Items Summary", "Amount Borrowed", "Timestamp"
+  ]);
+  var customerSheet = getOrCreateSheet(ss, "Customers", [
+    "Customer ID", "Customer Name", "Phone Number", "Current Balance", "Last Updated"
+  ]);
+
+  var txId = body.transactionId || body.id || Utilities.getUuid();
+  var customerId = String(body.customerId || "").trim();
+  var customerName = body.customerName || body.name || "";
+  var itemsSummary = body.itemsSummary || body.itemSummary || "";
+  var amount = Number(body.amountBorrowed || body.amount) || 0.0;
+  var timestamp = body.timestamp || new Date().toISOString();
+
+  utangSheet.appendRow([
+    txId,
+    customerId,
+    customerName,
+    itemsSummary,
+    amount,
+    timestamp
+  ]);
+
+  if (customerId) {
+    var newBalance = (body.remainingBalance !== undefined && body.remainingBalance !== null)
+      ? Number(body.remainingBalance)
+      : (getCustomerBalance(customerSheet, customerId) + amount);
+
+    upsertCustomerRow(customerSheet, {
+      customerId: customerId,
+      customerName: customerName,
+      phoneNumber: body.phoneNumber || body.phone || "",
+      currentBalance: newBalance,
+      lastUpdated: timestamp
+    });
+  }
+
+  return ContentService.createTextOutput(JSON.stringify({
+    status: "success",
+    message: "Utang transaction logged successfully"
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * Handle LOG_UTANG_PAYMENT action
+ * Appends new row to Payment_Logs sheet:
+ * [paymentId, customerId, customerName, amountPaid, remainingBalance, timestamp]
+ * Automatically updates/upserts the customer's total balance in the Customers sheet.
+ */
+function handleLogUtangPayment(ss, body) {
+  var paymentSheet = getOrCreateSheet(ss, "Payment_Logs", [
+    "Payment ID", "Customer ID", "Customer Name", "Amount Paid", "Remaining Balance", "Timestamp"
+  ]);
+  var customerSheet = getOrCreateSheet(ss, "Customers", [
+    "Customer ID", "Customer Name", "Phone Number", "Current Balance", "Last Updated"
+  ]);
+
+  var paymentId = body.paymentId || body.id || Utilities.getUuid();
+  var customerId = String(body.customerId || "").trim();
+  var customerName = body.customerName || body.name || "";
+  var amountPaid = Number(body.amountPaid || body.amount) || 0.0;
+  var timestamp = body.timestamp || new Date().toISOString();
+
+  var remainingBalance = (body.remainingBalance !== undefined && body.remainingBalance !== null)
+    ? Number(body.remainingBalance)
+    : Math.max(0, getCustomerBalance(customerSheet, customerId) - amountPaid);
+
+  paymentSheet.appendRow([
+    paymentId,
+    customerId,
+    customerName,
+    amountPaid,
+    remainingBalance,
+    timestamp
+  ]);
+
+  if (customerId) {
+    upsertCustomerRow(customerSheet, {
+      customerId: customerId,
+      customerName: customerName,
+      phoneNumber: body.phoneNumber || body.phone || "",
+      currentBalance: remainingBalance,
+      lastUpdated: timestamp
+    });
+  }
+
+  return ContentService.createTextOutput(JSON.stringify({
+    status: "success",
+    message: "Utang payment logged successfully"
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * Upsert Customer Row in Customers Sheet
+ * Key: customerId (Column A, 0-indexed column 0)
+ */
+function upsertCustomerRow(sheet, customer) {
+  if (!customer) return;
+  var customerId = String(customer.customerId || customer.id || "").trim();
+  if (!customerId) return;
+  var name = customer.customerName || customer.name || "";
+  var phone = customer.phoneNumber || customer.phone || "";
+  var balance = Number(customer.currentBalance) || 0.0;
+  var timestamp = customer.lastUpdated || customer.updatedAt || new Date().toISOString();
+
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === customerId) {
+      var rowNum = i + 1;
+      sheet.getRange(rowNum, 2).setValue(name);
+      sheet.getRange(rowNum, 3).setValue(phone);
+      sheet.getRange(rowNum, 4).setValue(balance);
+      sheet.getRange(rowNum, 5).setValue(timestamp);
+      return;
+    }
+  }
+
+  sheet.appendRow([
+    customerId,
+    name,
+    phone,
+    balance,
+    timestamp
+  ]);
+}
+
+/**
+ * Get current customer balance from Customers Sheet
+ */
+function getCustomerBalance(sheet, customerId) {
+  if (!customerId) return 0.0;
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === String(customerId).trim()) {
+      return Number(data[i][3]) || 0.0;
+    }
+  }
+  return 0.0;
+}
+
 """
 }
