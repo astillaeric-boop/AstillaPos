@@ -64,6 +64,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -425,15 +426,28 @@ fun ProductPosCard(
     currency: String,
     onAddToCart: () -> Unit
 ) {
+    val isOutOfStock = product.stockQuantity <= 0
+
     Card(
-        onClick = onAddToCart,
+        onClick = {
+            if (!isOutOfStock) {
+                onAddToCart()
+            }
+        },
+        enabled = !isOutOfStock,
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
+            containerColor = if (isOutOfStock) {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isOutOfStock) 0.dp else 2.dp),
         modifier = Modifier
             .fillMaxWidth()
+            .alpha(if (isOutOfStock) 0.55f else 1.0f)
             .testTag("pos_product_item_${product.id}")
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
@@ -465,17 +479,33 @@ fun ProductPosCard(
                     )
                 }
 
-                // Low stock indicator badge
-                if (product.stockQuantity <= 10) {
+                // Prominent Out of Stock overlay / Low stock indicator badge
+                if (isOutOfStock) {
                     Surface(
                         shape = RoundedCornerShape(6.dp),
-                        color = if (product.stockQuantity <= 0) Color(0xFFDC2626) else Color(0xFFD97706),
+                        color = Color(0xFFDC2626),
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(4.dp)
+                    ) {
+                        Text(
+                            text = "OUT OF STOCK",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                } else if (product.stockQuantity <= 10) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFFD97706),
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(4.dp)
                     ) {
                         Text(
-                            text = if (product.stockQuantity <= 0) "OUT" else "${product.stockQuantity} left",
+                            text = "${product.stockQuantity} left",
                             color = Color.White,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
@@ -507,20 +537,20 @@ fun ProductPosCard(
                     text = "$currency${String.format(Locale.US, "%.2f", product.retailPrice)}",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
+                    color = if (isOutOfStock) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary
                 )
 
                 Surface(
                     shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    color = if (isOutOfStock) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
                     modifier = Modifier.size(28.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Default.Add,
-                            contentDescription = "Add to cart",
+                            contentDescription = if (isOutOfStock) "Out of Stock" else "Add to cart",
                             modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = if (isOutOfStock) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f) else MaterialTheme.colorScheme.primary
                         )
                     }
                 }
@@ -772,11 +802,18 @@ fun CartItemRow(
                     modifier = Modifier.padding(horizontal = 8.dp)
                 )
 
+                val isMaxStock = cartItem.quantity >= cartItem.product.stockQuantity
                 IconButton(
                     onClick = onIncrement,
+                    enabled = !isMaxStock,
                     modifier = Modifier.size(28.dp)
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = "Increment", modifier = Modifier.size(16.dp))
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = "Increment",
+                        modifier = Modifier.size(16.dp),
+                        tint = if (isMaxStock) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f) else MaterialTheme.colorScheme.primary
+                    )
                 }
 
                 Spacer(modifier = Modifier.width(4.dp))

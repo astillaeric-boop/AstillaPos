@@ -105,11 +105,13 @@ class GoogleSheetSyncWorker(
             val pObj = JSONObject()
             pObj.put("id", product.id)
             pObj.put("name", product.name)
+            pObj.put("productName", product.name)
             pObj.put("barcode", product.barcode)
             pObj.put("category", product.category)
             pObj.put("costPrice", product.costPrice)
             pObj.put("retailPrice", product.retailPrice)
             pObj.put("stockQuantity", product.stockQuantity)
+            pObj.put("updatedAt", if (product.updatedAt > 0) dateFormat.format(Date(product.updatedAt)) else dateFormat.format(Date()))
             inventoryJson.put(pObj)
         }
 

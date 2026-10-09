@@ -150,6 +150,24 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             val product = repository.getProductByBarcode(barcode.trim())
             val soundEnabled = settings.value.soundEnabled
             if (product != null) {
+                if (product.stockQuantity <= 0) {
+                    soundManager.playErrorTone(soundEnabled)
+                    _uiState.value = _uiState.value.copy(
+                        toastMessage = "Item out of stock! (${product.name})",
+                        isScannerOpen = false
+                    )
+                    return@launch
+                }
+                val existingCartItem = _uiState.value.cartItems.find { it.product.id == product.id }
+                val currentCartQty = existingCartItem?.quantity ?: 0
+                if (currentCartQty + 1 > product.stockQuantity) {
+                    soundManager.playErrorTone(soundEnabled)
+                    _uiState.value = _uiState.value.copy(
+                        toastMessage = "Cannot exceed available stock (Max: ${product.stockQuantity})",
+                        isScannerOpen = false
+                    )
+                    return@launch
+                }
                 soundManager.playScanBeep(soundEnabled)
                 addToCart(product)
                 _uiState.value = _uiState.value.copy(
@@ -166,15 +184,34 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addToCart(product: ProductEntity) {
+        if (product.stockQuantity <= 0) {
+            soundManager.playErrorTone(settings.value.soundEnabled)
+            _uiState.value = _uiState.value.copy(
+                toastMessage = "Item out of stock!"
+            )
+            return
+        }
+
         val currentItems = _uiState.value.cartItems.toMutableList()
         val index = currentItems.indexOfFirst { it.product.id == product.id }
         if (index >= 0) {
             val existing = currentItems[index]
+            if (existing.quantity + 1 > product.stockQuantity) {
+                soundManager.playErrorTone(settings.value.soundEnabled)
+                _uiState.value = _uiState.value.copy(
+                    toastMessage = "Cannot exceed available stock (Max: ${product.stockQuantity})"
+                )
+                return
+            }
             currentItems[index] = existing.copy(quantity = existing.quantity + 1)
         } else {
             currentItems.add(CartItem(product = product, quantity = 1))
         }
         recalculateTotals(currentItems)
+    }
+
+    fun incrementCartItem(product: ProductEntity) {
+        addToCart(product)
     }
 
     fun decrementQuantity(productId: Long) {
@@ -238,6 +275,35 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         if (currentState.cartItems.isEmpty()) return
 
         viewModelScope.launch {
+            // Strict Inventory Verification against latest Room DB state
+            for (cartItem in currentState.cartItems) {
+                val freshProduct = repository.getProductById(cartItem.product.id)
+                if (freshProduct == null) {
+                    soundManager.playErrorTone(settings.value.soundEnabled)
+                    _uiState.value = _uiState.value.copy(
+                        toastMessage = "Item not found in catalog: ${cartItem.product.name}",
+                        isCashCheckoutDialogOpen = false
+                    )
+                    return@launch
+                }
+                if (freshProduct.stockQuantity <= 0) {
+                    soundManager.playErrorTone(settings.value.soundEnabled)
+                    _uiState.value = _uiState.value.copy(
+                        toastMessage = "Item is out of stock: ${freshProduct.name}. Please adjust cart.",
+                        isCashCheckoutDialogOpen = false
+                    )
+                    return@launch
+                }
+                if (cartItem.quantity > freshProduct.stockQuantity) {
+                    soundManager.playErrorTone(settings.value.soundEnabled)
+                    _uiState.value = _uiState.value.copy(
+                        toastMessage = "Cannot checkout: ${freshProduct.name} only has ${freshProduct.stockQuantity} in stock (Cart: ${cartItem.quantity})",
+                        isCashCheckoutDialogOpen = false
+                    )
+                    return@launch
+                }
+            }
+
             val saleEntity = SaleEntity(
                 timestamp = System.currentTimeMillis(),
                 totalAmount = currentState.totalAmount,

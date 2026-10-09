@@ -60,22 +60,15 @@ function doPost(e) {
     // 2. Direct single INVENTORY append/update event
     if (body.type === "INVENTORY") {
       var invSheetSingle = getOrCreateInventorySheet(ss);
-      var barcode = body.barcode ? body.barcode.toString().trim() : "";
-      var name = body.productName || body.name || "";
-      var category = body.category || "General";
-      var costPrice = Number(body.costPrice) || 0.0;
-      var retailPrice = Number(body.retailPrice) || 0.0;
-      var stock = Number(body.stockQuantity) || 0;
-      var nowIso = new Date().toISOString();
-
-      var rowIdx = findProductRowByBarcode(invSheetSingle, barcode);
-      if (rowIdx > 0) {
-        invSheetSingle.getRange(rowIdx, 1, 1, 7).setValues([[
-          nowIso, barcode, name, category, stock, costPrice, retailPrice
-        ]]);
-      } else {
-        invSheetSingle.appendRow([nowIso, barcode, name, category, stock, costPrice, retailPrice]);
-      }
+      upsertProductRow(invSheetSingle, {
+        barcode: body.barcode || "",
+        name: body.productName || body.name || "",
+        category: body.category || "General",
+        costPrice: Number(body.costPrice) || 0.0,
+        retailPrice: Number(body.retailPrice) || 0.0,
+        stockQuantity: Number(body.stockQuantity) || 0,
+        updatedAt: body.updatedAt || new Date().toISOString()
+      });
 
       return ContentService.createTextOutput(JSON.stringify({
         status: "success",
@@ -339,35 +332,40 @@ function deductInventoryStock(inventorySheet, inventoryMap, barcode, quantitySol
   var nowIso = new Date().toISOString();
 
   if (record) {
+    // Read current stock cell dynamically to maintain accuracy
     var stockCell = inventorySheet.getRange(record.row, 5);
     var currentStockVal = Number(stockCell.getValue()) || record.currentStock;
-    var newStock = currentStockVal - quantitySold;
+    // Prevent negative stock: Math.max(0, currentStockVal - quantitySold)
+    var newStock = Math.max(0, currentStockVal - quantitySold);
 
+    // S_new = max(0, S_current - Q_sold)
     stockCell.setValue(newStock);
+    // Update Last Updated timestamp (Col 1)
     inventorySheet.getRange(record.row, 1).setValue(nowIso);
 
     record.currentStock = newStock;
     record.lastUpdated = nowIso;
   } else {
+    // Product not yet in Google Sheet; upsert it with 0 stock (non-negative)
     var productName = itemData.productName || itemData.name || "Item " + barcode;
     var category = itemData.category || "General";
     var costPrice = Number(itemData.unitCost || itemData.costPrice) || 0.0;
     var retailPrice = Number(itemData.unitPrice || itemData.retailPrice) || 0.0;
-    var newStock = -quantitySold;
+    var newStock = 0; // Prevent negative stock for untracked products
 
-    inventorySheet.appendRow([
-      nowIso,
-      barcode,
-      productName,
-      category,
-      newStock,
-      costPrice,
-      retailPrice
-    ]);
+    upsertProductRow(inventorySheet, {
+      barcode: barcode,
+      name: productName,
+      category: category,
+      stockQuantity: newStock,
+      costPrice: costPrice,
+      retailPrice: retailPrice,
+      updatedAt: nowIso
+    });
 
-    var newRow = inventorySheet.getLastRow();
+    var rowNumber = findProductRowByBarcode(inventorySheet, barcode);
     inventoryMap[barcode] = {
-      row: newRow,
+      row: rowNumber > 0 ? rowNumber : inventorySheet.getLastRow(),
       lastUpdated: nowIso,
       barcode: barcode,
       productName: productName,
@@ -414,7 +412,7 @@ function getDeltaCatalog(inventorySheet, lastSyncedAt) {
         barcode: barcode,
         productName: productName,
         category: (row[3] || "General").toString().trim(),
-        stockQuantity: Number(row[4]) || 0,
+        stockQuantity: Math.max(0, Number(row[4]) || 0),
         costPrice: Number(row[5]) || 0.0,
         retailPrice: Number(row[6]) || 0.0,
         lastUpdated: (rawUpdated instanceof Date) ? rawUpdated.toISOString() : (rawUpdated ? rawUpdated.toString() : "")
@@ -424,29 +422,66 @@ function getDeltaCatalog(inventorySheet, lastSyncedAt) {
   return results;
 }
 
-function syncInventorySnapshot(inventorySheet, products) {
-  var existingMap = buildInventoryMap(inventorySheet);
-  var nowIso = new Date().toISOString();
+/**
+ * Upsert product row by barcode (Column B, 0-indexed column 1)
+ * Updates existing row or appends new row.
+ * Guarantees non-negative stock: Math.max(0, Number(product.stockQuantity))
+ * Preserves individual product modification timestamps (product.updatedAt).
+ */
+function upsertProductRow(sheet, product) {
+  if (!product || !product.barcode) return;
+  var barcodeStr = String(product.barcode).trim();
+  if (!barcodeStr) return;
 
+  var data = sheet.getDataRange().getValues();
+  var barcodeColIndex = 1; // Column B (0-indexed)
+  var timestamp = product.updatedAt ? String(product.updatedAt) : new Date().toISOString();
+  var name = product.productName || product.name || "";
+  var category = product.category || "General";
+  var stock = Math.max(0, Number(product.stockQuantity) || 0);
+  var cost = Number(product.costPrice) || 0.0;
+  var retail = Number(product.retailPrice) || 0.0;
+
+  // Search for existing product by barcode (row index 1+ to skip header)
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][barcodeColIndex]).trim() === barcodeStr) {
+      var rowNum = i + 1;
+      sheet.getRange(rowNum, 1).setValue(timestamp); // Last Updated
+      sheet.getRange(rowNum, 3).setValue(name);      // Name
+      sheet.getRange(rowNum, 4).setValue(category);  // Category
+      sheet.getRange(rowNum, 5).setValue(stock);     // Stock (Non-Negative)
+      sheet.getRange(rowNum, 6).setValue(cost);      // Cost Price
+      sheet.getRange(rowNum, 7).setValue(retail);    // Retail Price
+      return;
+    }
+  }
+
+  // If barcode is not found, append a new row
+  sheet.appendRow([
+    timestamp,
+    barcodeStr,
+    name,
+    category,
+    stock,
+    cost,
+    retail
+  ]);
+}
+
+function syncInventorySnapshot(inventorySheet, products) {
+  if (!products || !Array.isArray(products)) return;
   for (var i = 0; i < products.length; i++) {
     var p = products[i];
-    var barcode = (p.barcode || "").toString().trim();
-    if (!barcode) continue;
-
-    var name = p.name || p.productName || "";
-    var category = p.category || "General";
-    var cost = Number(p.costPrice) || 0.0;
-    var retail = Number(p.retailPrice) || 0.0;
-    var stock = Number(p.stockQuantity) || 0;
-
-    if (existingMap[barcode]) {
-      var rowIdx = existingMap[barcode].row;
-      inventorySheet.getRange(rowIdx, 1, 1, 7).setValues([[
-        nowIso, barcode, name, category, stock, cost, retail
-      ]]);
-    } else {
-      inventorySheet.appendRow([nowIso, barcode, name, category, stock, cost, retail]);
-      existingMap[barcode] = { row: inventorySheet.getLastRow() };
+    if (p && (p.barcode || p.sku)) {
+      upsertProductRow(inventorySheet, {
+        barcode: p.barcode || p.sku,
+        name: p.productName || p.name || "",
+        category: p.category || "General",
+        stockQuantity: p.stockQuantity,
+        costPrice: p.costPrice,
+        retailPrice: p.retailPrice,
+        updatedAt: p.updatedAt
+      });
     }
   }
 }

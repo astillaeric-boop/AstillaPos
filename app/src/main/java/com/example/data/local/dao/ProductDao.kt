@@ -99,11 +99,26 @@ interface ProductDao {
     @Query("UPDATE products SET stockQuantity = :newStock WHERE id = :productId")
     suspend fun updateStock(productId: Long, newStock: Int)
 
-    @Query("UPDATE products SET stockQuantity = stockQuantity - :quantity WHERE id = :productId")
-    suspend fun decreaseStock(productId: Long, quantity: Int)
+    @Query("""
+        UPDATE products 
+        SET stockQuantity = CASE WHEN (stockQuantity - :quantity) < 0 THEN 0 ELSE (stockQuantity - :quantity) END,
+            updatedAt = :timestamp,
+            isSynced = 0
+        WHERE id = :productId AND stockQuantity >= :quantity
+    """)
+    suspend fun decreaseStock(productId: Long, quantity: Int, timestamp: Long = System.currentTimeMillis()): Int
 
-    @Query("UPDATE products SET stockQuantity = stockQuantity + :quantity WHERE id = :productId")
-    suspend fun increaseStock(productId: Long, quantity: Int)
+    @Query("""
+        UPDATE products 
+        SET stockQuantity = CASE WHEN (stockQuantity - :qty) < 0 THEN 0 ELSE (stockQuantity - :qty) END,
+            updatedAt = :timestamp,
+            isSynced = 0
+        WHERE barcode = :barcode AND stockQuantity >= :qty
+    """)
+    suspend fun decreaseStockByBarcode(barcode: String, qty: Int, timestamp: Long = System.currentTimeMillis()): Int
+
+    @Query("UPDATE products SET stockQuantity = stockQuantity + :quantity, updatedAt = :timestamp, isSynced = 0 WHERE id = :productId")
+    suspend fun increaseStock(productId: Long, quantity: Int, timestamp: Long = System.currentTimeMillis())
 
     @Query("DELETE FROM products")
     suspend fun deleteAllProducts()
