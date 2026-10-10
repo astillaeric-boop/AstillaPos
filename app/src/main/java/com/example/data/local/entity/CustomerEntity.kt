@@ -10,5 +10,6 @@ data class CustomerEntity(
     val phoneNumber: String = "",          // Used for Phone SIM SMS
     val messengerContact: String = "",    // Used for Facebook Messenger m.me link
     val currentBalance: Double = 0.0,      // Total accumulated utang
-    val lastUpdated: Long = System.currentTimeMillis()
+    val lastUpdated: Long = System.currentTimeMillis(),
+    val isSynced: Boolean = false
 )

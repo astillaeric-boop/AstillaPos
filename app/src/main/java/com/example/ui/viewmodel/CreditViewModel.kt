@@ -9,6 +9,7 @@ import com.example.data.local.entity.CreditTransactionEntity
 import com.example.data.local.entity.CustomerEntity
 import com.example.data.local.entity.ProductEntity
 import com.example.data.repository.PosRepository
+import com.example.data.repository.UtangRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -352,11 +353,14 @@ class CreditViewModel(application: Application) : AndroidViewModel(application) 
         val payload = JSONObject().apply {
             put("action", "LOG_UTANG_TRANSACTION")
             put("transactionId", "utang-${tx.id}")
+            put("transactionNumber", "TX-UTANG-${tx.id}")
             put("customerId", customer.id)
             put("customerName", customer.name)
             put("phoneNumber", customer.phoneNumber)
             put("itemsSummary", tx.itemSummary)
+            put("goodsBorrowed", tx.itemSummary)
             put("amountBorrowed", tx.amount)
+            put("totalAmount", tx.amount)
             put("remainingBalance", tx.remainingBalance)
             put("timestamp", dateFormat.format(Date(tx.timestamp)))
         }
@@ -368,10 +372,13 @@ class CreditViewModel(application: Application) : AndroidViewModel(application) 
         val payload = JSONObject().apply {
             put("action", "LOG_UTANG_PAYMENT")
             put("paymentId", "pay-${tx.id}")
+            put("paymentNumber", "PAY-${tx.id}")
             put("customerId", customer.id)
             put("customerName", customer.name)
             put("phoneNumber", customer.phoneNumber)
             put("amountPaid", tx.amount)
+            put("amount", tx.amount)
+            put("totalAmount", tx.amount)
             put("remainingBalance", tx.remainingBalance)
             put("timestamp", dateFormat.format(Date(tx.timestamp)))
         }

@@ -58,4 +58,13 @@ interface CreditTransactionDao {
 
     @Query("DELETE FROM credit_transactions")
     suspend fun deleteAllCreditTransactions()
+
+    @Query("SELECT * FROM credit_transactions WHERE isSynced = 0 ORDER BY timestamp ASC")
+    suspend fun getUnsyncedTransactions(): List<CreditTransactionEntity>
+
+    @Query("UPDATE credit_transactions SET isSynced = 1 WHERE id = :id")
+    suspend fun markTransactionSynced(id: Long)
+
+    @Query("UPDATE credit_transactions SET isSynced = 1 WHERE id IN (:ids)")
+    suspend fun markTransactionsSynced(ids: List<Long>)
 }

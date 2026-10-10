@@ -24,5 +24,6 @@ data class CreditTransactionEntity(
     val transactionType: String,          // "BORROW" or "PAYMENT"
     val amount: Double,
     val itemSummary: String,              // Itemized string of borrowed products
-    val remainingBalance: Double
+    val remainingBalance: Double,
+    val isSynced: Boolean = false
 )

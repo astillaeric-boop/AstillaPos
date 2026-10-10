@@ -69,4 +69,13 @@ interface CustomerDao {
 
     @Query("SELECT COALESCE(SUM(currentBalance), 0.0) FROM customers")
     suspend fun getOutstandingUtangBalanceDirect(): Double
+
+    @Query("SELECT * FROM customers WHERE isSynced = 0")
+    suspend fun getUnsyncedCustomers(): List<CustomerEntity>
+
+    @Query("UPDATE customers SET isSynced = 1 WHERE id = :id")
+    suspend fun markCustomerSynced(id: Long)
+
+    @Query("UPDATE customers SET isSynced = 1 WHERE id IN (:ids)")
+    suspend fun markCustomersSynced(ids: List<Long>)
 }

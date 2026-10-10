@@ -178,6 +178,14 @@ class PosRepository(private val database: AppDatabase) {
 
     suspend fun markDeliveriesAsSynced(ids: List<Long>) = deliveryDao.markDeliveriesAsSynced(ids)
 
+    suspend fun getUnsyncedCustomers(): List<CustomerEntity> = customerDao.getUnsyncedCustomers()
+
+    suspend fun markCustomersSynced(ids: List<Long>) = customerDao.markCustomersSynced(ids)
+
+    suspend fun getUnsyncedCreditTransactions(): List<CreditTransactionEntity> = creditTransactionDao.getUnsyncedTransactions()
+
+    suspend fun markCreditTransactionsSynced(ids: List<Long>) = creditTransactionDao.markTransactionsSynced(ids)
+
     suspend fun getCustomerById(id: Long): CustomerEntity? = customerDao.getCustomerById(id)
 
     fun getCustomerByIdFlow(id: Long): Flow<CustomerEntity?> = customerDao.getCustomerByIdFlow(id)

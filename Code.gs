@@ -74,16 +74,20 @@ function doPost(e) {
     }
 
     // 3. Utang (Credit Ledger) Actions
-    if (body.action === "SYNC_CUSTOMER" || body.type === "SYNC_CUSTOMER") {
-      return handleSyncCustomer(ss, body);
+    var action = (body.action || body.type || "").toString().trim().toUpperCase();
+    if (action === "SYNC_CUSTOMER") {
+      syncCustomer(ss, body.customer || body);
+      return ContentService.createTextOutput(JSON.stringify({ status: "SUCCESS" })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    if (body.action === "LOG_UTANG_TRANSACTION" || body.type === "LOG_UTANG_TRANSACTION") {
-      return handleLogUtangTransaction(ss, body);
+    if (action === "LOG_UTANG_TRANSACTION") {
+      logUtangTransaction(ss, body);
+      return ContentService.createTextOutput(JSON.stringify({ status: "SUCCESS" })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    if (body.action === "LOG_UTANG_PAYMENT" || body.type === "LOG_UTANG_PAYMENT") {
-      return handleLogUtangPayment(ss, body);
+    if (action === "LOG_UTANG_PAYMENT") {
+      logUtangPayment(ss, body);
+      return ContentService.createTextOutput(JSON.stringify({ status: "SUCCESS" })).setMimeType(ContentService.MimeType.JSON);
     }
 
     // 4. Transactions sync endpoint (Standard /api/v1/sync/transactions spec & ASTILLA POS batch sync)
@@ -614,161 +618,155 @@ function getOrCreateSheet(ss, sheetName, headers) {
 // -------------------------------------------------------------
 // UTANG (CUSTOMER CREDIT LEDGER) SYNC HANDLERS & HELPERS
 // -------------------------------------------------------------
+// UTANG (CUSTOMER CREDIT LEDGER) SYNC HANDLERS & HELPERS
+// -------------------------------------------------------------
 
 /**
- * Handle SYNC_CUSTOMER action
+ * 1. Auto-create & Upsert 'Customers' Sheet
  * Locates row in Customers sheet by customerId (Column A).
  * Upserts row: [customerId, customerName, phoneNumber, currentBalance, lastUpdated]
  */
-function handleSyncCustomer(ss, body) {
-  var customerSheet = getOrCreateSheet(ss, "Customers", [
-    "Customer ID", "Customer Name", "Phone Number", "Current Balance", "Last Updated"
-  ]);
-  upsertCustomerRow(customerSheet, body);
-  return ContentService.createTextOutput(JSON.stringify({
-    status: "success",
-    message: "Customer synced successfully"
-  })).setMimeType(ContentService.MimeType.JSON);
-}
-
-/**
- * Handle LOG_UTANG_TRANSACTION action
- * Appends new row to Utang_Transactions sheet:
- * [transactionId, customerId, customerName, itemsSummary, amountBorrowed, timestamp]
- * Automatically updates/upserts the customer's total balance in the Customers sheet.
- */
-function handleLogUtangTransaction(ss, body) {
-  var utangSheet = getOrCreateSheet(ss, "Utang_Transactions", [
-    "Transaction ID", "Customer ID", "Customer Name", "Items Summary", "Amount Borrowed", "Timestamp"
-  ]);
-  var customerSheet = getOrCreateSheet(ss, "Customers", [
-    "Customer ID", "Customer Name", "Phone Number", "Current Balance", "Last Updated"
-  ]);
-
-  var txId = body.transactionId || body.id || Utilities.getUuid();
-  var customerId = String(body.customerId || "").trim();
-  var customerName = body.customerName || body.name || "";
-  var itemsSummary = body.itemsSummary || body.itemSummary || "";
-  var amount = Number(body.amountBorrowed || body.amount) || 0.0;
-  var timestamp = body.timestamp || new Date().toISOString();
-
-  utangSheet.appendRow([
-    txId,
-    customerId,
-    customerName,
-    itemsSummary,
-    amount,
-    timestamp
-  ]);
-
-  if (customerId) {
-    var newBalance = (body.remainingBalance !== undefined && body.remainingBalance !== null)
-      ? Number(body.remainingBalance)
-      : (getCustomerBalance(customerSheet, customerId) + amount);
-
-    upsertCustomerRow(customerSheet, {
-      customerId: customerId,
-      customerName: customerName,
-      phoneNumber: body.phoneNumber || body.phone || "",
-      currentBalance: newBalance,
-      lastUpdated: timestamp
-    });
-  }
-
-  return ContentService.createTextOutput(JSON.stringify({
-    status: "success",
-    message: "Utang transaction logged successfully"
-  })).setMimeType(ContentService.MimeType.JSON);
-}
-
-/**
- * Handle LOG_UTANG_PAYMENT action
- * Appends new row to Payment_Logs sheet:
- * [paymentId, customerId, customerName, amountPaid, remainingBalance, timestamp]
- * Automatically updates/upserts the customer's total balance in the Customers sheet.
- */
-function handleLogUtangPayment(ss, body) {
-  var paymentSheet = getOrCreateSheet(ss, "Payment_Logs", [
-    "Payment ID", "Customer ID", "Customer Name", "Amount Paid", "Remaining Balance", "Timestamp"
-  ]);
-  var customerSheet = getOrCreateSheet(ss, "Customers", [
-    "Customer ID", "Customer Name", "Phone Number", "Current Balance", "Last Updated"
-  ]);
-
-  var paymentId = body.paymentId || body.id || Utilities.getUuid();
-  var customerId = String(body.customerId || "").trim();
-  var customerName = body.customerName || body.name || "";
-  var amountPaid = Number(body.amountPaid || body.amount) || 0.0;
-  var timestamp = body.timestamp || new Date().toISOString();
-
-  var remainingBalance = (body.remainingBalance !== undefined && body.remainingBalance !== null)
-    ? Number(body.remainingBalance)
-    : Math.max(0, getCustomerBalance(customerSheet, customerId) - amountPaid);
-
-  paymentSheet.appendRow([
-    paymentId,
-    customerId,
-    customerName,
-    amountPaid,
-    remainingBalance,
-    timestamp
-  ]);
-
-  if (customerId) {
-    upsertCustomerRow(customerSheet, {
-      customerId: customerId,
-      customerName: customerName,
-      phoneNumber: body.phoneNumber || body.phone || "",
-      currentBalance: remainingBalance,
-      lastUpdated: timestamp
-    });
-  }
-
-  return ContentService.createTextOutput(JSON.stringify({
-    status: "success",
-    message: "Utang payment logged successfully"
-  })).setMimeType(ContentService.MimeType.JSON);
-}
-
-/**
- * Upsert Customer Row in Customers Sheet
- * Key: customerId (Column A, 0-indexed column 0)
- */
-function upsertCustomerRow(sheet, customer) {
+function syncCustomer(ss, customer) {
   if (!customer) return;
-  var customerId = String(customer.customerId || customer.id || "").trim();
-  if (!customerId) return;
-  var name = customer.customerName || customer.name || "";
-  var phone = customer.phoneNumber || customer.phone || "";
+  var sheet = ss.getSheetByName("Customers");
+  if (!sheet) {
+    sheet = ss.insertSheet("Customers");
+    sheet.appendRow(["Customer ID", "Customer Name", "Phone Number", "Current Balance", "Last Updated"]);
+    sheet.getRange(1, 1, 1, 5).setFontWeight("bold").setBackground("#f1f5f9");
+  }
+
+  var cId = String(customer.customerId || customer.id || "").trim();
+  if (!cId) return;
+
+  var name = customer.name || customer.customerName || "";
+  var phone = customer.phone || customer.phoneNumber || "N/A";
   var balance = Number(customer.currentBalance) || 0.0;
-  var timestamp = customer.lastUpdated || customer.updatedAt || new Date().toISOString();
+  var updatedAt = customer.updatedAt || customer.lastUpdated || new Date().toISOString();
 
   var data = sheet.getDataRange().getValues();
   for (var i = 1; i < data.length; i++) {
-    if (String(data[i][0]).trim() === customerId) {
+    if (String(data[i][0]).trim() === cId) {
       var rowNum = i + 1;
       sheet.getRange(rowNum, 2).setValue(name);
       sheet.getRange(rowNum, 3).setValue(phone);
       sheet.getRange(rowNum, 4).setValue(balance);
-      sheet.getRange(rowNum, 5).setValue(timestamp);
+      sheet.getRange(rowNum, 5).setValue(updatedAt);
       return;
     }
   }
 
   sheet.appendRow([
-    customerId,
+    cId,
     name,
     phone,
     balance,
+    updatedAt
+  ]);
+}
+
+/**
+ * 2. Auto-create & Append to 'Utang_Transactions' Sheet
+ * Appends row: [Customer Name, Transaction No., Goods Borrowed, Total Amount, Date & Time]
+ * Also automatically updates master customer balance on the summary sheet.
+ */
+function logUtangTransaction(ss, data) {
+  if (!data) return;
+  var sheet = ss.getSheetByName("Utang_Transactions");
+  if (!sheet) {
+    sheet = ss.insertSheet("Utang_Transactions");
+    sheet.appendRow(["Customer Name", "Transaction No.", "Goods Borrowed", "Total Amount", "Date & Time"]);
+    sheet.getRange(1, 1, 1, 5).setFontWeight("bold").setBackground("#f1f5f9");
+  }
+
+  var customerName = data.customerName || data.name || "Customer";
+  var transactionNumber = data.transactionNumber || data.transactionId || data.id || ("TX-" + Utilities.getUuid());
+  var goodsBorrowed = data.goodsBorrowed || data.itemsSummary || data.itemSummary || "N/A";
+  var totalAmount = Number(data.totalAmount || data.amountBorrowed || data.amount) || 0.0;
+  var timestamp = data.timestamp || new Date().toISOString();
+
+  sheet.appendRow([
+    customerName,
+    transactionNumber,
+    goodsBorrowed,
+    totalAmount,
     timestamp
   ]);
+
+  // Also update master customer balance on summary sheet
+  if (data.customerId) {
+    var newBalance = (data.newBalance !== undefined && data.newBalance !== null)
+      ? Number(data.newBalance)
+      : (data.remainingBalance !== undefined ? Number(data.remainingBalance) : (getCustomerBalance(ss, data.customerId) + totalAmount));
+
+    syncCustomer(ss, {
+      customerId: data.customerId,
+      name: customerName,
+      phone: data.phone || data.phoneNumber || "N/A",
+      currentBalance: newBalance,
+      updatedAt: timestamp
+    });
+  }
+}
+
+/**
+ * 3. Auto-create & Append to 'Payment_Logs' Sheet
+ * Appends row: [Customer Name, Payment ID, Amount Paid, Remaining Balance, Date & Time]
+ * Also automatically updates master customer balance on summary sheet.
+ */
+function logUtangPayment(ss, data) {
+  if (!data) return;
+  var sheet = ss.getSheetByName("Payment_Logs");
+  if (!sheet) {
+    sheet = ss.insertSheet("Payment_Logs");
+    sheet.appendRow(["Customer Name", "Payment ID", "Amount Paid", "Remaining Balance", "Date & Time"]);
+    sheet.getRange(1, 1, 1, 5).setFontWeight("bold").setBackground("#f1f5f9");
+  }
+
+  var customerName = data.customerName || data.name || "Customer";
+  var paymentId = data.paymentId || data.paymentNumber || data.id || ("PAY-" + Utilities.getUuid());
+  var amountPaid = Number(data.amountPaid || data.totalAmount || data.amount) || 0.0;
+  var timestamp = data.timestamp || new Date().toISOString();
+
+  var remainingBalance = (data.remainingBalance !== undefined && data.remainingBalance !== null)
+    ? Number(data.remainingBalance)
+    : (data.newBalance !== undefined ? Number(data.newBalance) : Math.max(0, getCustomerBalance(ss, data.customerId) - amountPaid));
+
+  sheet.appendRow([
+    customerName,
+    paymentId,
+    amountPaid,
+    remainingBalance,
+    timestamp
+  ]);
+
+  if (data.customerId) {
+    syncCustomer(ss, {
+      customerId: data.customerId,
+      name: customerName,
+      phone: data.phone || data.phoneNumber || "N/A",
+      currentBalance: remainingBalance,
+      updatedAt: timestamp
+    });
+  }
+}
+
+/**
+ * Upsert Customer Row in Customers Sheet (Backward-compatible helper)
+ */
+function upsertCustomerRow(sheetOrSs, customer) {
+  var ss = (typeof sheetOrSs.getParent === "function") ? sheetOrSs.getParent() : SpreadsheetApp.getActiveSpreadsheet();
+  syncCustomer(ss, customer);
 }
 
 /**
  * Get current customer balance from Customers Sheet
  */
-function getCustomerBalance(sheet, customerId) {
+function getCustomerBalance(ssOrSheet, customerId) {
   if (!customerId) return 0.0;
+  var ss = (typeof ssOrSheet.getSheetByName === "function") ? ssOrSheet : SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("Customers");
+  if (!sheet) return 0.0;
+
   var data = sheet.getDataRange().getValues();
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][0]).trim() === String(customerId).trim()) {
@@ -777,4 +775,5 @@ function getCustomerBalance(sheet, customerId) {
   }
   return 0.0;
 }
+
 

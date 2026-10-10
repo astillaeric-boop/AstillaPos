@@ -46,10 +46,14 @@ class GoogleSheetSyncWorker(
         val unsyncedSales = repository.getUnsyncedSales()
         val unsyncedDeliveries = repository.getUnsyncedDeliveries()
         val unsyncedProducts = repository.getUnsyncedProducts()
+        val unsyncedCreditTxs = repository.getUnsyncedCreditTransactions()
+        val unsyncedCustomers = repository.getUnsyncedCustomers()
         val allProducts = repository.allProducts.firstOrNull() ?: emptyList()
         val allCustomers = repository.allCustomers.firstOrNull() ?: emptyList()
 
-        if (unsyncedSales.isEmpty() && unsyncedDeliveries.isEmpty() && unsyncedProducts.isEmpty()) {
+        if (unsyncedSales.isEmpty() && unsyncedDeliveries.isEmpty() && unsyncedProducts.isEmpty() &&
+            unsyncedCreditTxs.isEmpty() && unsyncedCustomers.isEmpty()
+        ) {
             Log.d("SyncWorker", "No unsynced records found.")
             return@withContext Result.success()
         }
@@ -127,6 +131,40 @@ class GoogleSheetSyncWorker(
             customersJson.put(cObj)
         }
 
+        val utangTransactionsJson = JSONArray()
+        val utangPaymentsJson = JSONArray()
+        for (tx in unsyncedCreditTxs) {
+            val customer = allCustomers.find { it.id == tx.customerId }
+            val custName = customer?.name ?: "Customer"
+            val custPhone = customer?.phoneNumber ?: ""
+            if (tx.transactionType.contains("PAYMENT", ignoreCase = true)) {
+                val pObj = JSONObject()
+                pObj.put("paymentId", "pay-${tx.id}")
+                pObj.put("customerId", tx.customerId)
+                pObj.put("customerName", custName)
+                pObj.put("phoneNumber", custPhone)
+                pObj.put("amountPaid", tx.amount)
+                pObj.put("amount", tx.amount)
+                pObj.put("remainingBalance", tx.remainingBalance)
+                pObj.put("timestamp", dateFormat.format(Date(tx.timestamp)))
+                utangPaymentsJson.put(pObj)
+            } else {
+                val uObj = JSONObject()
+                uObj.put("transactionId", "utang-${tx.id}")
+                uObj.put("transactionNumber", "TX-UTANG-${tx.id}")
+                uObj.put("customerId", tx.customerId)
+                uObj.put("customerName", custName)
+                uObj.put("phoneNumber", custPhone)
+                uObj.put("itemsSummary", tx.itemSummary)
+                uObj.put("goodsBorrowed", tx.itemSummary)
+                uObj.put("amountBorrowed", tx.amount)
+                uObj.put("totalAmount", tx.amount)
+                uObj.put("remainingBalance", tx.remainingBalance)
+                uObj.put("timestamp", dateFormat.format(Date(tx.timestamp)))
+                utangTransactionsJson.put(uObj)
+            }
+        }
+
         val rootPayload = JSONObject()
         rootPayload.put("action", "sync_pos_data")
         rootPayload.put("storeName", settings.storeName)
@@ -135,6 +173,8 @@ class GoogleSheetSyncWorker(
         rootPayload.put("deliveries", deliveriesJson)
         rootPayload.put("inventory", inventoryJson)
         rootPayload.put("customers", customersJson)
+        rootPayload.put("utangTransactions", utangTransactionsJson)
+        rootPayload.put("utangPayments", utangPaymentsJson)
 
         val client = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
@@ -169,6 +209,14 @@ class GoogleSheetSyncWorker(
                 val productIds = unsyncedProducts.map { it.id }
                 if (productIds.isNotEmpty()) {
                     repository.markProductsAsSynced(productIds)
+                }
+                val txIds = unsyncedCreditTxs.map { it.id }
+                if (txIds.isNotEmpty()) {
+                    repository.markCreditTransactionsSynced(txIds)
+                }
+                val custIds = unsyncedCustomers.map { it.id }
+                if (custIds.isNotEmpty()) {
+                    repository.markCustomersSynced(custIds)
                 }
 
                 Result.success()

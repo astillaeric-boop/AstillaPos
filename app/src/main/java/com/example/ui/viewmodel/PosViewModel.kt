@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
 import com.example.data.local.entity.AppSettingsEntity
+import com.example.data.local.entity.CreditTransactionEntity
 import com.example.data.local.entity.CustomerEntity
 import com.example.data.local.entity.ProductEntity
 import com.example.data.local.entity.SaleEntity
@@ -13,6 +14,7 @@ import com.example.data.local.entity.SaleWithItems
 import com.example.data.repository.PosRepository
 import com.example.data.sync.GoogleSheetSyncWorker
 import com.example.util.SoundManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -21,6 +23,15 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 data class CartItem(
     val product: ProductEntity,
@@ -335,12 +346,16 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             if (currentState.selectedPaymentType.contains("Utang", ignoreCase = true) && currentState.selectedCreditCustomerId != null) {
                 val itemSummary = currentState.cartItems.joinToString(", ") { "${it.quantity}x ${it.product.name}" }
                 try {
-                    repository.recordCreditTransaction(
+                    val tx = repository.recordCreditTransaction(
                         customerId = currentState.selectedCreditCustomerId,
                         transactionType = "BORROW",
                         amount = currentState.totalAmount,
                         itemSummary = itemSummary
                     )
+                    val customer = repository.getCustomerById(currentState.selectedCreditCustomerId)
+                    if (customer != null) {
+                        dispatchLogUtangTransaction(tx, customer)
+                    }
                 } catch (e: Exception) {
                     // Log or handle
                 }
@@ -374,6 +389,41 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             isReceiptDialogOpen = false,
             lastCompletedSale = null
         )
+    }
+
+    private fun dispatchLogUtangTransaction(tx: CreditTransactionEntity, customer: CustomerEntity) {
+        val endpoint = settings.value.googleSheetLink.trim()
+        if (endpoint.isEmpty() || !endpoint.startsWith("http")) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                val payload = JSONObject().apply {
+                    put("action", "LOG_UTANG_TRANSACTION")
+                    put("transactionId", "utang-${tx.id}")
+                    put("transactionNumber", "TX-UTANG-${tx.id}")
+                    put("customerId", customer.id)
+                    put("customerName", customer.name)
+                    put("phoneNumber", customer.phoneNumber)
+                    put("itemsSummary", tx.itemSummary)
+                    put("goodsBorrowed", tx.itemSummary)
+                    put("amountBorrowed", tx.amount)
+                    put("totalAmount", tx.amount)
+                    put("remainingBalance", tx.remainingBalance)
+                    put("timestamp", dateFormat.format(Date(tx.timestamp)))
+                }
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(15, TimeUnit.SECONDS)
+                    .readTimeout(15, TimeUnit.SECONDS)
+                    .followRedirects(true)
+                    .followSslRedirects(true)
+                    .build()
+                val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+                val request = Request.Builder().url(endpoint).post(body).build()
+                client.newCall(request).execute().close()
+            } catch (_: Exception) {
+                // Background dispatch failure safe, batch WorkManager will synchronize
+            }
+        }
     }
 
     override fun onCleared() {
