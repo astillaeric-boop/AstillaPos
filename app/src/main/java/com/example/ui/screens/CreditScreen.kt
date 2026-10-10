@@ -25,15 +25,18 @@ import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Payment
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,6 +44,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -83,6 +87,8 @@ fun CreditScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val products by viewModel.products.collectAsStateWithLifecycle()
+    val isSyncing by viewModel.isSyncing.collectAsStateWithLifecycle()
+    val unsyncedCount by viewModel.unsyncedCount.collectAsStateWithLifecycle()
 
     val selectedCustomer by viewModel.selectedCustomer.collectAsStateWithLifecycle()
     val selectedCustomerTransactions by viewModel.selectedCustomerTransactions.collectAsStateWithLifecycle()
@@ -191,18 +197,59 @@ fun CreditScreen(
                                     )
                                 }
 
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
-                                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                                ) {
-                                    Text(
-                                        text = "$debtorsCount with balance",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (unsyncedCount > 0) {
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = Color(0xFFFEF3C7)
+                                        ) {
+                                            Text(
+                                                text = "$unsyncedCount pending",
+                                                color = Color(0xFFB45309),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                    }
+
+                                    if (settings.googleSheetLink.isNotBlank() && settings.googleSheetLink.startsWith("http")) {
+                                        IconButton(
+                                            onClick = { viewModel.syncNow() },
+                                            enabled = !isSyncing,
+                                            modifier = Modifier.size(36.dp).testTag("credit_sync_now_btn")
+                                        ) {
+                                            if (isSyncing) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(18.dp),
+                                                    strokeWidth = 2.dp
+                                                )
+                                            } else {
+                                                Icon(
+                                                    imageVector = if (unsyncedCount > 0) Icons.Default.CloudSync else Icons.Default.Sync,
+                                                    contentDescription = "Sync Utang to Cloud",
+                                                    tint = if (unsyncedCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onPrimaryContainer,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = "$debtorsCount debtors",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
                                 }
                             }
 

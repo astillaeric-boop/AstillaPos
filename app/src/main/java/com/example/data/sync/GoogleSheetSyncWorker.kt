@@ -13,6 +13,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.example.data.local.AppDatabase
 import com.example.data.repository.PosRepository
+import com.example.data.repository.UtangRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.withContext
@@ -41,6 +42,14 @@ class GoogleSheetSyncWorker(
         if (endpoint.isEmpty() || !endpoint.startsWith("http")) {
             Log.d("SyncWorker", "No Google Sheet Web App URL configured. Skipping sync.")
             return@withContext Result.success()
+        }
+
+        // Ensure all individual unsynced Utang customer & transaction actions are uploaded
+        try {
+            val utangRepo = UtangRepository(database)
+            utangRepo.syncAllUnsyncedUtang(endpoint)
+        } catch (e: Exception) {
+            Log.e("SyncWorker", "UtangRepository sync failed: ${e.message}")
         }
 
         val unsyncedSales = repository.getUnsyncedSales()

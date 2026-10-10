@@ -195,11 +195,18 @@ class PosRepository(private val database: AppDatabase) {
     fun getCustomerTransactions(customerId: Long): Flow<List<CreditTransactionEntity>> =
         customerDao.getTransactionsForCustomer(customerId)
 
+    fun getUnsyncedUtangCount(): Flow<Int> = combine(
+        customerDao.getUnsyncedCustomerCount(),
+        creditTransactionDao.getUnsyncedTransactionCount()
+    ) { cCount, txCount ->
+        cCount + txCount
+    }
+
     suspend fun insertOrUpdateCustomer(customer: CustomerEntity): Long {
         return if (customer.id == 0L) {
-            customerDao.insertCustomer(customer)
+            customerDao.insertCustomer(customer.copy(isSynced = false))
         } else {
-            customerDao.updateCustomer(customer)
+            customerDao.updateCustomer(customer.copy(isSynced = false))
             customer.id
         }
     }

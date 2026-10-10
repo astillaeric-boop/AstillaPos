@@ -392,9 +392,10 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun dispatchLogUtangTransaction(tx: CreditTransactionEntity, customer: CustomerEntity) {
-        val endpoint = settings.value.googleSheetLink.trim()
-        if (endpoint.isEmpty() || !endpoint.startsWith("http")) return
         viewModelScope.launch(Dispatchers.IO) {
+            val directSettings = repository.getSettingsDirect()
+            val endpoint = directSettings.googleSheetLink.trim()
+            if (endpoint.isEmpty() || !endpoint.startsWith("http")) return@launch
             try {
                 val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
                 val payload = JSONObject().apply {
@@ -419,7 +420,12 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                     .build()
                 val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
                 val request = Request.Builder().url(endpoint).post(body).build()
-                client.newCall(request).execute().close()
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    repository.markCreditTransactionsSynced(listOf(tx.id))
+                    repository.markCustomersSynced(listOf(customer.id))
+                }
+                response.close()
             } catch (_: Exception) {
                 // Background dispatch failure safe, batch WorkManager will synchronize
             }

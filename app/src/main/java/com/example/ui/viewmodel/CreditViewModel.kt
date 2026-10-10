@@ -10,6 +10,7 @@ import com.example.data.local.entity.CustomerEntity
 import com.example.data.local.entity.ProductEntity
 import com.example.data.repository.PosRepository
 import com.example.data.repository.UtangRepository
+import com.example.data.sync.GoogleSheetSyncWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -64,6 +65,26 @@ class CreditViewModel(application: Application) : AndroidViewModel(application) 
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = AppSettingsEntity()
         )
+
+    val unsyncedCount: StateFlow<Int> = repository.getUnsyncedUtangCount()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = 0
+        )
+
+    private val _isSyncing = MutableStateFlow(false)
+    val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
+
+    fun syncNow() {
+        _isSyncing.value = true
+        GoogleSheetSyncWorker.triggerImmediateSync(getApplication())
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(1200)
+            _isSyncing.value = false
+            _uiState.value = _uiState.value.copy(toastMessage = "Sync job dispatched")
+        }
+    }
 
     val customers: StateFlow<List<CustomerEntity>> = combine(
         repository.allCustomers,
@@ -161,15 +182,17 @@ class CreditViewModel(application: Application) : AndroidViewModel(application) 
                 phoneNumber = phone.trim(),
                 messengerContact = messenger.trim(),
                 currentBalance = _uiState.value.editingCustomer?.currentBalance ?: 0.0,
-                lastUpdated = System.currentTimeMillis()
+                lastUpdated = System.currentTimeMillis(),
+                isSynced = false
             )
             val savedId = repository.insertOrUpdateCustomer(customer)
             val savedCustomer = customer.copy(id = savedId)
-            dispatchSyncCustomer(savedCustomer)
             closeAddEditCustomerDialog()
             _uiState.value = _uiState.value.copy(
                 toastMessage = if (id == 0L) "Customer added successfully" else "Customer updated"
             )
+            dispatchSyncCustomer(savedCustomer)
+            GoogleSheetSyncWorker.triggerImmediateSync(getApplication())
         }
     }
 
@@ -196,6 +219,7 @@ class CreditViewModel(application: Application) : AndroidViewModel(application) 
             }
             closeDeleteConfirm()
             _uiState.value = _uiState.value.copy(toastMessage = "Customer deleted")
+            GoogleSheetSyncWorker.triggerImmediateSync(getApplication())
         }
     }
 
@@ -229,6 +253,7 @@ class CreditViewModel(application: Application) : AndroidViewModel(application) 
                 closeBorrowDialog()
                 val updatedCustomer = repository.getCustomerById(customerId) ?: customer
                 dispatchLogUtangTransaction(tx, updatedCustomer)
+                GoogleSheetSyncWorker.triggerImmediateSync(getApplication())
                 _uiState.value = _uiState.value.copy(
                     toastMessage = "Utang recorded & inventory updated!",
                     showReceiptDialog = true,
@@ -259,6 +284,7 @@ class CreditViewModel(application: Application) : AndroidViewModel(application) 
                 // Update target customer for receipt
                 val updatedCustomer = repository.getCustomerById(customerId) ?: customer
                 dispatchLogUtangTransaction(tx, updatedCustomer)
+                GoogleSheetSyncWorker.triggerImmediateSync(getApplication())
                 _uiState.value = _uiState.value.copy(
                     toastMessage = "Utang recorded successfully!",
                     showReceiptDialog = true,
@@ -303,6 +329,7 @@ class CreditViewModel(application: Application) : AndroidViewModel(application) 
                 closePaymentDialog()
                 val updatedCustomer = repository.getCustomerById(customerId) ?: customer
                 dispatchLogUtangPayment(tx, updatedCustomer)
+                GoogleSheetSyncWorker.triggerImmediateSync(getApplication())
                 _uiState.value = _uiState.value.copy(
                     toastMessage = "Payment recorded successfully!",
                     showReceiptDialog = true,
@@ -345,7 +372,9 @@ class CreditViewModel(application: Application) : AndroidViewModel(application) 
             put("currentBalance", customer.currentBalance)
             put("lastUpdated", dateFormat.format(Date(customer.lastUpdated)))
         }
-        dispatchSheetAction(payload)
+        dispatchSheetAction(payload) {
+            repository.markCustomersSynced(listOf(customer.id))
+        }
     }
 
     private fun dispatchLogUtangTransaction(tx: CreditTransactionEntity, customer: CustomerEntity) {
@@ -364,7 +393,10 @@ class CreditViewModel(application: Application) : AndroidViewModel(application) 
             put("remainingBalance", tx.remainingBalance)
             put("timestamp", dateFormat.format(Date(tx.timestamp)))
         }
-        dispatchSheetAction(payload)
+        dispatchSheetAction(payload) {
+            repository.markCreditTransactionsSynced(listOf(tx.id))
+            repository.markCustomersSynced(listOf(customer.id))
+        }
     }
 
     private fun dispatchLogUtangPayment(tx: CreditTransactionEntity, customer: CustomerEntity) {
@@ -382,13 +414,20 @@ class CreditViewModel(application: Application) : AndroidViewModel(application) 
             put("remainingBalance", tx.remainingBalance)
             put("timestamp", dateFormat.format(Date(tx.timestamp)))
         }
-        dispatchSheetAction(payload)
+        dispatchSheetAction(payload) {
+            repository.markCreditTransactionsSynced(listOf(tx.id))
+            repository.markCustomersSynced(listOf(customer.id))
+        }
     }
 
-    private fun dispatchSheetAction(payload: JSONObject) {
-        val endpoint = settings.value.googleSheetLink.trim()
-        if (endpoint.isEmpty() || !endpoint.startsWith("http")) return
+    private fun dispatchSheetAction(
+        payload: JSONObject,
+        onSuccess: (suspend () -> Unit)? = null
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
+            val directSettings = repository.getSettingsDirect()
+            val endpoint = directSettings.googleSheetLink.trim()
+            if (endpoint.isEmpty() || !endpoint.startsWith("http")) return@launch
             try {
                 val client = OkHttpClient.Builder()
                     .connectTimeout(15, TimeUnit.SECONDS)
@@ -398,9 +437,13 @@ class CreditViewModel(application: Application) : AndroidViewModel(application) 
                     .build()
                 val body = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
                 val request = Request.Builder().url(endpoint).post(body).build()
-                client.newCall(request).execute().close()
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    onSuccess?.invoke()
+                }
+                response.close()
             } catch (_: Exception) {
-                // Background dispatch failure safe, batch WorkManager will synchronize
+                // Background dispatch failure safe, WorkManager will synchronize
             }
         }
     }

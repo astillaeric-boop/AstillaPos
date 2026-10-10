@@ -37,7 +37,7 @@ interface CustomerDao {
     @Delete
     suspend fun deleteCustomer(customer: CustomerEntity)
 
-    @Query("UPDATE customers SET currentBalance = :newBalance, lastUpdated = :timestamp WHERE id = :customerId")
+    @Query("UPDATE customers SET currentBalance = :newBalance, lastUpdated = :timestamp, isSynced = 0 WHERE id = :customerId")
     suspend fun updateCustomerBalance(customerId: Long, newBalance: Double, timestamp: Long = System.currentTimeMillis())
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -72,6 +72,9 @@ interface CustomerDao {
 
     @Query("SELECT * FROM customers WHERE isSynced = 0")
     suspend fun getUnsyncedCustomers(): List<CustomerEntity>
+
+    @Query("SELECT COUNT(*) FROM customers WHERE isSynced = 0")
+    fun getUnsyncedCustomerCount(): Flow<Int>
 
     @Query("UPDATE customers SET isSynced = 1 WHERE id = :id")
     suspend fun markCustomerSynced(id: Long)

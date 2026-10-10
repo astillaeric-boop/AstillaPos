@@ -210,28 +210,30 @@ function doPost(e) {
     var rawUtangTxs = body.utangTransactions || body.utang_transactions || [];
     if (rawUtangTxs.length > 0) {
       var utangSheet = getOrCreateSheet(ss, "Utang_Transactions", [
-        "Transaction ID", "Customer ID", "Customer Name", "Items Summary", "Amount Borrowed", "Timestamp"
-      ]);
-      var custSheetUtang = getOrCreateSheet(ss, "Customers", [
-        "Customer ID", "Customer Name", "Phone Number", "Current Balance", "Last Updated"
+        "Customer Name", "Transaction Number", "Goods Borrowed", "Total Amount", "Date & Time"
       ]);
       for (var uIdx = 0; uIdx < rawUtangTxs.length; uIdx++) {
         var uTx = rawUtangTxs[uIdx];
+        var custName = uTx.customerName || uTx.name || "Customer";
+        var txNum = uTx.transactionNumber || uTx.transactionId || uTx.id || ("TX-" + Utilities.getUuid());
+        var gBorrowed = uTx.goodsBorrowed || uTx.itemsSummary || uTx.itemSummary || "N/A";
+        var totAmt = Number(uTx.totalAmount || uTx.amountBorrowed || uTx.amount) || 0.0;
+        var txTime = uTx.timestamp || currentServerTime;
+
         utangSheet.appendRow([
-          uTx.transactionId || uTx.id || Utilities.getUuid(),
-          uTx.customerId || "",
-          uTx.customerName || "",
-          uTx.itemsSummary || uTx.itemSummary || "",
-          Number(uTx.amountBorrowed || uTx.amount) || 0.0,
-          uTx.timestamp || currentServerTime
+          custName,
+          txNum,
+          gBorrowed,
+          totAmt,
+          txTime
         ]);
         if (uTx.customerId && uTx.remainingBalance !== undefined && uTx.remainingBalance !== null) {
-          upsertCustomerRow(custSheetUtang, {
+          syncCustomer(ss, {
             customerId: uTx.customerId,
-            customerName: uTx.customerName || "",
-            phoneNumber: uTx.phoneNumber || "",
+            name: custName,
+            phone: uTx.phoneNumber || uTx.phone || "",
             currentBalance: Number(uTx.remainingBalance),
-            lastUpdated: uTx.timestamp || currentServerTime
+            updatedAt: txTime
           });
         }
       }
@@ -241,29 +243,30 @@ function doPost(e) {
     var rawPaymentLogs = body.utangPayments || body.utang_payments || [];
     if (rawPaymentLogs.length > 0) {
       var paymentSheet = getOrCreateSheet(ss, "Payment_Logs", [
-        "Payment ID", "Customer ID", "Customer Name", "Amount Paid", "Remaining Balance", "Timestamp"
-      ]);
-      var custSheetPay = getOrCreateSheet(ss, "Customers", [
-        "Customer ID", "Customer Name", "Phone Number", "Current Balance", "Last Updated"
+        "Customer Name", "Payment ID", "Amount Paid", "Remaining Balance", "Date & Time"
       ]);
       for (var pIdx = 0; pIdx < rawPaymentLogs.length; pIdx++) {
         var pLog = rawPaymentLogs[pIdx];
-        var remBal = Number(pLog.remainingBalance) || 0.0;
+        var pCustName = pLog.customerName || pLog.name || "Customer";
+        var pId = pLog.paymentId || pLog.paymentNumber || pLog.id || ("PAY-" + Utilities.getUuid());
+        var pAmt = Number(pLog.amountPaid || pLog.totalAmount || pLog.amount) || 0.0;
+        var remBal = (pLog.remainingBalance !== undefined && pLog.remainingBalance !== null) ? Number(pLog.remainingBalance) : 0.0;
+        var pTime = pLog.timestamp || currentServerTime;
+
         paymentSheet.appendRow([
-          pLog.paymentId || pLog.id || Utilities.getUuid(),
-          pLog.customerId || "",
-          pLog.customerName || "",
-          Number(pLog.amountPaid || pLog.amount) || 0.0,
+          pCustName,
+          pId,
+          pAmt,
           remBal,
-          pLog.timestamp || currentServerTime
+          pTime
         ]);
         if (pLog.customerId) {
-          upsertCustomerRow(custSheetPay, {
+          syncCustomer(ss, {
             customerId: pLog.customerId,
-            customerName: pLog.customerName || "",
-            phoneNumber: pLog.phoneNumber || "",
+            name: pCustName,
+            phone: pLog.phoneNumber || pLog.phone || "",
             currentBalance: remBal,
-            lastUpdated: pLog.timestamp || currentServerTime
+            updatedAt: pTime
           });
         }
       }
@@ -614,12 +617,13 @@ function getOrCreateSheet(ss, sheetName, headers) {
     sheet = ss.insertSheet(sheetName);
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#f1f5f9");
+  } else if (sheet.getLastRow() === 0) {
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#f1f5f9");
   }
   return sheet;
 }
 
-// -------------------------------------------------------------
-// UTANG (CUSTOMER CREDIT LEDGER) SYNC HANDLERS & HELPERS
 // -------------------------------------------------------------
 // UTANG (CUSTOMER CREDIT LEDGER) SYNC HANDLERS & HELPERS
 // -------------------------------------------------------------
@@ -631,12 +635,9 @@ function getOrCreateSheet(ss, sheetName, headers) {
  */
 function syncCustomer(ss, customer) {
   if (!customer) return;
-  var sheet = ss.getSheetByName("Customers");
-  if (!sheet) {
-    sheet = ss.insertSheet("Customers");
-    sheet.appendRow(["Customer ID", "Customer Name", "Phone Number", "Current Balance", "Last Updated"]);
-    sheet.getRange(1, 1, 1, 5).setFontWeight("bold").setBackground("#f1f5f9");
-  }
+  var sheet = getOrCreateSheet(ss, "Customers", [
+    "Customer ID", "Customer Name", "Phone Number", "Current Balance", "Last Updated"
+  ]);
 
   var cId = String(customer.customerId || customer.id || "").trim();
   if (!cId) return;
@@ -646,15 +647,18 @@ function syncCustomer(ss, customer) {
   var balance = Number(customer.currentBalance) || 0.0;
   var updatedAt = customer.updatedAt || customer.lastUpdated || new Date().toISOString();
 
-  var data = sheet.getDataRange().getValues();
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][0]).trim() === cId) {
-      var rowNum = i + 1;
-      sheet.getRange(rowNum, 2).setValue(name);
-      sheet.getRange(rowNum, 3).setValue(phone);
-      sheet.getRange(rowNum, 4).setValue(balance);
-      sheet.getRange(rowNum, 5).setValue(updatedAt);
-      return;
+  var lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    var data = sheet.getRange(2, 1, lastRow - 1, 5).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]).trim() === cId) {
+        var rowNum = i + 2;
+        sheet.getRange(rowNum, 2).setValue(name);
+        sheet.getRange(rowNum, 3).setValue(phone);
+        sheet.getRange(rowNum, 4).setValue(balance);
+        sheet.getRange(rowNum, 5).setValue(updatedAt);
+        return;
+      }
     }
   }
 
@@ -669,17 +673,14 @@ function syncCustomer(ss, customer) {
 
 /**
  * 2. Auto-create & Append to 'Utang_Transactions' Sheet
- * Appends row: [Customer Name, Transaction No., Goods Borrowed, Total Amount, Date & Time]
+ * Appends row: [Customer Name, Transaction Number, Goods Borrowed, Total Amount, Date & Time]
  * Also automatically updates master customer balance on the summary sheet.
  */
 function logUtangTransaction(ss, data) {
   if (!data) return;
-  var sheet = ss.getSheetByName("Utang_Transactions");
-  if (!sheet) {
-    sheet = ss.insertSheet("Utang_Transactions");
-    sheet.appendRow(["Customer Name", "Transaction No.", "Goods Borrowed", "Total Amount", "Date & Time"]);
-    sheet.getRange(1, 1, 1, 5).setFontWeight("bold").setBackground("#f1f5f9");
-  }
+  var sheet = getOrCreateSheet(ss, "Utang_Transactions", [
+    "Customer Name", "Transaction Number", "Goods Borrowed", "Total Amount", "Date & Time"
+  ]);
 
   var customerName = data.customerName || data.name || "Customer";
   var transactionNumber = data.transactionNumber || data.transactionId || data.id || ("TX-" + Utilities.getUuid());
@@ -718,12 +719,9 @@ function logUtangTransaction(ss, data) {
  */
 function logUtangPayment(ss, data) {
   if (!data) return;
-  var sheet = ss.getSheetByName("Payment_Logs");
-  if (!sheet) {
-    sheet = ss.insertSheet("Payment_Logs");
-    sheet.appendRow(["Customer Name", "Payment ID", "Amount Paid", "Remaining Balance", "Date & Time"]);
-    sheet.getRange(1, 1, 1, 5).setFontWeight("bold").setBackground("#f1f5f9");
-  }
+  var sheet = getOrCreateSheet(ss, "Payment_Logs", [
+    "Customer Name", "Payment ID", "Amount Paid", "Remaining Balance", "Date & Time"
+  ]);
 
   var customerName = data.customerName || data.name || "Customer";
   var paymentId = data.paymentId || data.paymentNumber || data.id || ("PAY-" + Utilities.getUuid());

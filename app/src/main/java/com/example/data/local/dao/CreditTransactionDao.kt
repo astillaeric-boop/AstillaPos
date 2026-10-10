@@ -62,6 +62,9 @@ interface CreditTransactionDao {
     @Query("SELECT * FROM credit_transactions WHERE isSynced = 0 ORDER BY timestamp ASC")
     suspend fun getUnsyncedTransactions(): List<CreditTransactionEntity>
 
+    @Query("SELECT COUNT(*) FROM credit_transactions WHERE isSynced = 0")
+    fun getUnsyncedTransactionCount(): Flow<Int>
+
     @Query("UPDATE credit_transactions SET isSynced = 1 WHERE id = :id")
     suspend fun markTransactionSynced(id: Long)
 
